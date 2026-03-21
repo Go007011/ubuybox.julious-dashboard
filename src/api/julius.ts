@@ -1,28 +1,17 @@
+const JULIUS_BASE = "https://api.julius.ai/shared";
+
 export async function getDealById(id: string) {
-  // 🔥 Replace this with real Google Sheets later
+  const res = await fetch(`${JULIUS_BASE}/deal/${id}`);
 
-  const deals = [
-    {
-      deal: "Deal_017",
-      spv: "SPV_017",
-      location: "Bexar County, TX",
-      price: 495000,
-      senior: 465300,
-      mezz: 20000,
-      equity: 29700,
-      payment: 1292,
-    },
-    {
-      deal: "Deal_021",
-      spv: "SPV_021",
-      location: "Atlanta, GA",
-      price: 720000,
-      senior: 650000,
-      mezz: 40000,
-      equity: 30000,
-      payment: 2100,
-    },
-  ];
+  if (!res.ok) throw new Error("Failed to fetch deal");
 
-  return deals.find(d => d.deal === id);
+  return res.json();
+}
+
+export async function getAllDeals() {
+  const res = await fetch(`${JULIUS_BASE}/deals`);
+
+  if (!res.ok) throw new Error("Failed to fetch deals");
+
+  return res.json();
 }
