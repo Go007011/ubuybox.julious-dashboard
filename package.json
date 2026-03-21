@@ -8,7 +8,7 @@
   "build": "vite build",
   "preview": "vite preview",
   "start": "vite --host 0.0.0.0 --port 3000"
-}
+},
   
   "dependencies": {
     "googleapis": "^171.4.0",

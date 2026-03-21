@@ -4,8 +4,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    allowedHosts: [
-      'capital-stack-ui.cluster-0.preview.emergentcf.cloud'
-    ]
+    host: '0.0.0.0',
+    allowedHosts: true
   }
 })
