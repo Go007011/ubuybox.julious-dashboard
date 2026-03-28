@@ -42,9 +42,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         {/* Logo */}
         <div className="p-6 border-b border-slate-800">
           <Link to="/" className="flex items-center gap-3" data-testid="logo-link" onClick={onClose}>
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/20">
-              <span className="text-white font-bold text-lg">U</span>
-            </div>
+            <img 
+              src="/logo.png" 
+              alt="UBUYBOX" 
+              className="w-10 h-10 rounded-xl object-contain"
+            />
             <span className="text-xl font-bold text-orange-500 tracking-tight">UBUYBOX</span>
           </Link>
         </div>
