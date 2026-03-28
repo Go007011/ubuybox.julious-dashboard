@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import type { Deal } from '../data/mockData';
+import type { Deal } from '../api/deals';
 
 interface DealCardProps {
   deal: Deal;
@@ -9,9 +9,9 @@ export default function DealCard({ deal }: DealCardProps) {
   const navigate = useNavigate();
   const total = deal.senior + deal.mezz + deal.equity;
   
-  const seniorPct = (deal.senior / total) * 100;
-  const mezzPct = (deal.mezz / total) * 100;
-  const equityPct = (deal.equity / total) * 100;
+  const seniorPct = total > 0 ? (deal.senior / total) * 100 : 0;
+  const mezzPct = total > 0 ? (deal.mezz / total) * 100 : 0;
+  const equityPct = total > 0 ? (deal.equity / total) * 100 : 0;
 
   const statusColors = {
     Active: 'bg-emerald-500',
@@ -45,7 +45,7 @@ export default function DealCard({ deal }: DealCardProps) {
       <div className="mb-5">
         <p className="text-sm text-slate-500">Purchase Price</p>
         <p className="text-2xl font-bold text-white">${deal.price.toLocaleString()}</p>
-        <p className="text-sm text-slate-400 mt-1">Total Capital: ${total.toLocaleString()}</p>
+        <p className="text-sm text-slate-400 mt-1">Total Capital: ${deal.totalCapital.toLocaleString()}</p>
       </div>
 
       {/* Capital Stack Cards */}
@@ -68,11 +68,13 @@ export default function DealCard({ deal }: DealCardProps) {
       </div>
 
       {/* Progress Bar */}
-      <div className="flex h-2.5 rounded-full overflow-hidden mb-5">
-        <div style={{ width: `${seniorPct}%` }} className="bg-blue-500" />
-        <div style={{ width: `${mezzPct}%` }} className="bg-purple-500" />
-        <div style={{ width: `${equityPct}%` }} className="bg-orange-500" />
-      </div>
+      {total > 0 && (
+        <div className="flex h-2.5 rounded-full overflow-hidden mb-5">
+          <div style={{ width: `${seniorPct}%` }} className="bg-blue-500" />
+          {mezzPct > 0 && <div style={{ width: `${mezzPct}%` }} className="bg-purple-500" />}
+          <div style={{ width: `${equityPct}%` }} className="bg-orange-500" />
+        </div>
+      )}
 
       {/* Footer */}
       <div className="flex items-center justify-between pt-4 border-t border-slate-700/50">
@@ -83,7 +85,7 @@ export default function DealCard({ deal }: DealCardProps) {
           </p>
         </div>
         <button
-          onClick={() => navigate(`/deal/${deal.deal}`, { state: deal })}
+          onClick={() => navigate(`/deal/${deal.deal}`)}
           className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/20 transition-base"
           data-testid={`enter-deal-${deal.deal}`}
         >

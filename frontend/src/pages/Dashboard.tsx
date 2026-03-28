@@ -1,9 +1,10 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import StatCard from '../components/StatCard';
 import DealCard from '../components/DealCard';
 import ActivityFeed from '../components/ActivityFeed';
 import QuickActions from '../components/QuickActions';
-import { deals, activities, stats } from '../data/mockData';
+import { fetchDashboard, formatCurrency, type Deal, type DashboardData } from '../api/deals';
 
 // Icon components for stat cards
 const BuildingIcon = () => (
@@ -30,40 +31,102 @@ const ChartIcon = () => (
   </svg>
 );
 
+// Activity type based on deal status changes
+const generateActivities = (deals: Deal[]) => {
+  return deals.slice(0, 4).map((deal, idx) => ({
+    id: String(idx),
+    action: `${deal.deal} - ${deal.location}`,
+    time: deal.status === 'Active' ? 'Recently active' : 'Pending review',
+    type: deal.status === 'Active' ? 'success' as const : deal.status === 'Locked' ? 'warning' as const : 'info' as const,
+  }));
+};
+
 export default function Dashboard() {
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadDashboard = async () => {
+      try {
+        setLoading(true);
+        const data = await fetchDashboard();
+        setDashboardData(data);
+        setError(null);
+      } catch (err) {
+        setError('Failed to load dashboard data');
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadDashboard();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-400">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !dashboardData) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <p className="text-red-400 mb-4">{error || 'Failed to load data'}</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const { totalDeals, activeSPVs, totalCapital, avgMonthlyPayment, statusCounts, recentDeals } = dashboardData;
+  const activities = generateActivities(recentDeals);
+
   return (
     <div className="space-y-6" data-testid="dashboard-page">
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Total Deals"
-          value={stats.totalDeals.value}
-          change={stats.totalDeals.change}
+          value={totalDeals}
+          change={`${statusCounts.Active} active`}
           changeType="positive"
           icon={<BuildingIcon />}
           iconBg="bg-blue-500/10"
         />
         <StatCard
           title="Active SPVs"
-          value={stats.activeSPVs.value}
-          change={stats.activeSPVs.change}
+          value={activeSPVs}
+          change={`${statusCounts.Pending} pending`}
           changeType="neutral"
           icon={<DocumentIcon />}
           iconBg="bg-purple-500/10"
         />
         <StatCard
           title="Total Capital"
-          value={stats.totalCapital.value}
-          change={stats.totalCapital.change}
+          value={formatCurrency(totalCapital)}
+          change="From Google Sheets"
           changeType="positive"
           icon={<DollarIcon />}
           iconBg="bg-emerald-500/10"
         />
         <StatCard
           title="Avg. Monthly Payment"
-          value={stats.avgPayment.value}
-          change={stats.avgPayment.change}
-          changeType="negative"
+          value={`$${avgMonthlyPayment.toLocaleString()}`}
+          change="Across all deals"
+          changeType="neutral"
           icon={<ChartIcon />}
           iconBg="bg-orange-500/10"
         />
@@ -83,7 +146,7 @@ export default function Dashboard() {
             </Link>
           </div>
           <div className="space-y-4">
-            {deals.map((deal) => (
+            {recentDeals.slice(0, 3).map((deal) => (
               <DealCard key={deal.id} deal={deal} />
             ))}
           </div>
