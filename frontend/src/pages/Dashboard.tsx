@@ -4,7 +4,7 @@ import StatCard from '../components/StatCard';
 import DealCard from '../components/DealCard';
 import ActivityFeed from '../components/ActivityFeed';
 import QuickActions from '../components/QuickActions';
-import { fetchDashboard, formatCurrency, type Deal, type DashboardData } from '../api/deals';
+import { fetchDashboard, fetchSPVVisibility, formatCurrency, getVisibility, type Deal, type DashboardData, type VisibilityMap } from '../api/deals';
 
 // Icon components for stat cards
 const BuildingIcon = () => (
@@ -43,6 +43,7 @@ const generateActivities = (deals: Deal[]) => {
 
 export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [visibilityMap, setVisibilityMap] = useState<VisibilityMap>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,8 +51,12 @@ export default function Dashboard() {
     const loadDashboard = async () => {
       try {
         setLoading(true);
-        const data = await fetchDashboard();
+        const [data, vis] = await Promise.all([
+          fetchDashboard(),
+          fetchSPVVisibility()
+        ]);
         setDashboardData(data);
+        setVisibilityMap(vis);
         setError(null);
       } catch (err) {
         setError('Failed to load dashboard data');
@@ -147,7 +152,7 @@ export default function Dashboard() {
           </div>
           <div className="space-y-4">
             {recentDeals.slice(0, 3).map((deal) => (
-              <DealCard key={deal.id} deal={deal} />
+              <DealCard key={deal.id} deal={deal} visibility={getVisibility(visibilityMap, deal.spv).visibilityState} />
             ))}
           </div>
         </div>

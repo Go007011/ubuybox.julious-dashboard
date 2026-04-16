@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import DealCard from '../components/DealCard';
-import { fetchDeals, formatCurrency, type Deal } from '../api/deals';
+import { fetchDeals, fetchSPVVisibility, formatCurrency, getVisibility, type Deal, type VisibilityMap } from '../api/deals';
 
 export default function CapitalStack() {
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [visibilityMap, setVisibilityMap] = useState<VisibilityMap>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -11,8 +12,12 @@ export default function CapitalStack() {
     const loadDeals = async () => {
       try {
         setLoading(true);
-        const data = await fetchDeals();
+        const [data, vis] = await Promise.all([
+          fetchDeals(),
+          fetchSPVVisibility()
+        ]);
         setDeals(data);
+        setVisibilityMap(vis);
         setError(null);
       } catch (err) {
         setError('Failed to load deals');
@@ -127,7 +132,7 @@ export default function CapitalStack() {
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {deals.map((deal) => (
-            <DealCard key={deal.id} deal={deal} />
+            <DealCard key={deal.id} deal={deal} visibility={getVisibility(visibilityMap, deal.spv).visibilityState} />
           ))}
         </div>
       </div>

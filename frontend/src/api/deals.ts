@@ -86,6 +86,67 @@ export async function fetchSPVs(): Promise<SPV[]> {
   return data.spvs;
 }
 
+// Visibility types from orchestration layer
+export type VisibilityState = 'blocked' | 'teaser' | 'preview' | 'full';
+
+export interface SPVVisibility {
+  visibilityState: VisibilityState;
+  waterfallVisible: boolean;
+  disclosureLevel: string;
+}
+
+export interface VisibilityMap {
+  [spvId: string]: SPVVisibility;
+}
+
+// Fetch visibility states for all SPVs
+export async function fetchSPVVisibility(): Promise<VisibilityMap> {
+  const response = await fetch(`${API_BASE}/spv-visibility`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch visibility data');
+  }
+  const data = await response.json();
+  return data.visibility;
+}
+
+// Get visibility for a specific SPV (defaults to teaser if not found)
+export function getVisibility(map: VisibilityMap, spvId: string): SPVVisibility {
+  return map[spvId] || { visibilityState: 'teaser', waterfallVisible: false, disclosureLevel: 'teaser' };
+}
+
+// Check if a field should be visible at the given visibility state
+export function isFieldVisible(visibility: VisibilityState, field: string): boolean {
+  const rules: Record<string, VisibilityState[]> = {
+    // Always visible (teaser+)
+    spvId: ['teaser', 'preview', 'full'],
+    county: ['teaser', 'preview', 'full'],
+    state: ['teaser', 'preview', 'full'],
+    location: ['teaser', 'preview', 'full'],
+    status: ['teaser', 'preview', 'full'],
+    propertyType: ['teaser', 'preview', 'full'],
+    dealCount: ['teaser', 'preview', 'full'],
+    // Preview+
+    price: ['preview', 'full'],
+    payment: ['preview', 'full'],
+    senior: ['preview', 'full'],
+    mezz: ['preview', 'full'],
+    equity: ['preview', 'full'],
+    totalCapital: ['preview', 'full'],
+    units: ['preview', 'full'],
+    unitsSold: ['preview', 'full'],
+    // Full only
+    address: ['full'],
+    sellerName: ['full'],
+    netToSeller: ['full'],
+    agentCommission: ['full'],
+    businessUse: ['full'],
+    unitSize: ['full'],
+  };
+  const allowed = rules[field];
+  if (!allowed) return visibility === 'full';
+  return allowed.includes(visibility);
+}
+
 // Format currency
 export function formatCurrency(value: number): string {
   if (value >= 1000000) {

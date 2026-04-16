@@ -1,0 +1,73 @@
+{
+  "summary": "Comprehensive testing of UBUYBOX OpenClaw orchestration API and frontend visibility enforcement. All 27 backend tests passed. Frontend correctly enforces visibility states (blocked/teaser/preview/full) with proper field masking.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "GET /api/orchestration/health returns ok:true without auth",
+    "POST /api/orchestration/load-spv returns 401 without auth",
+    "POST /api/orchestration/load-spv returns 403 with invalid token",
+    "POST /api/orchestration/load-spv returns view model with valid SPV and auth",
+    "POST /api/orchestration/load-spv returns 404 for invalid SPV (SPV_999)",
+    "POST /api/orchestration/set-disclosure sets blocked/teaser/preview/full levels",
+    "POST /api/orchestration/set-disclosure returns 404 for invalid SPV",
+    "POST /api/orchestration/set-disclosure returns 422 for invalid disclosure level",
+    "GET /api/orchestration/status/{spvId} returns comprehensive status with auth",
+    "GET /api/orchestration/status/{spvId} returns exists:false for invalid SPV",
+    "POST /api/orchestration/resolve-visibility resolves visibility state correctly",
+    "POST /api/orchestration/resolve-visibility returns blocked for invalid SPV",
+    "POST /api/orchestration/set-waterfall-permission sets permitted true/false",
+    "POST /api/orchestration/set-waterfall-permission returns 404 for invalid SPV",
+    "GET /api/spv-visibility returns visibility map without auth (public endpoint)",
+    "Visibility state filtering: teaser shows limited data",
+    "Visibility state filtering: blocked shows minimal data with message",
+    "Dashboard shows deal cards with teaser visibility masking (Price restricted, Capital stack restricted)",
+    "Dashboard shows visibility indicators (Teaser View) on deal cards",
+    "Capital Stack page shows all 20 deals with proper visibility masking",
+    "SPV Registry shows Visibility column with teaser/preview/full/blocked badges",
+    "SPV Registry shows Waterfall column with Gated/Visible badges",
+    "Waterfalls page shows 'No Waterfalls Available' when all SPVs gated",
+    "Waterfalls page shows gated SPV list with visibility states",
+    "Deal Detail page shows visibility badge (preview view - some fields restricted)",
+    "Deal Detail page masks seller name and net to seller in preview mode",
+    "Deal Detail page shows capital stack in preview mode",
+    "Deal Detail page hides waterfall section when not permitted"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_orchestration.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_orchestration.py"
+  ],
+  "success_rate": {
+    "backend": "100% (27/27 tests passed)",
+    "frontend": "100% (all visibility features working)"
+  },
+  "test_credentials": {
+    "orchestration_token": "ubx_orch_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0",
+    "valid_spv_ids": "SPV_011 through SPV_030",
+    "invalid_spv_id": "SPV_999"
+  },
+  "seed_data_creation": "None - all data from Google Sheets",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All orchestration endpoints tested and working. Frontend visibility enforcement working correctly. Default visibility is 'teaser' for all SPVs (in-memory state resets on backend restart). Waterfall visibility requires: disclosure='full' + fieldsComplete=true + safeToDisplay=true + waterfallPermitted=true. Currently fieldsComplete=false for all SPVs because Google Sheet Status column is empty.",
+  "notes": {
+    "visibility_states": {
+      "blocked": "Shows SPV ID only with blocked message",
+      "teaser": "Shows location, status, property type. Hides prices, capital stack, seller info",
+      "preview": "Shows prices, capital stack, units. Hides seller name, address, net to seller",
+      "full": "Shows all fields except seller identity (intentionally excluded)"
+    },
+    "waterfall_gating": "All SPVs currently gated because fieldsComplete=false (Status column empty in Google Sheet) and waterfallPermitted defaults to false"
+  }
+}
