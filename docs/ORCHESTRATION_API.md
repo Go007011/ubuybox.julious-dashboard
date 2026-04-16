@@ -1,288 +1,335 @@
-# UBUYBOX Orchestration API Documentation
+# UBUYBOX Orchestration API — Verified Reference
 
-## Overview
-
-This orchestration layer allows OpenClaw to control UBUYBOX's SPV display/process layer without becoming the database.
-
-**Architecture:**
-- Google Sheets remains the source of truth
-- OpenClaw controls display state only (disclosure levels)
-- No direct Google Sheets access from OpenClaw
-- All data modifications stay in app-layer memory
-
-## Base URL
-
-```
-Production: https://your-domain.com
-Preview: https://your-preview.preview.emergentagent.com
-Local: http://localhost:8001
-```
-
-## Authentication
-
-All orchestration endpoints (except `/health`) require Bearer token authentication.
-
-**Header Format:**
-```
-Authorization: Bearer <token>
-```
-
-**Token Location:**
-- Set via environment variable: `ORCHESTRATION_API_TOKEN`
-- Default token (change in production): `ubx_orch_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0`
-
-**Generate New Token:**
-```bash
-python -c "import secrets; print('ubx_orch_' + secrets.token_hex(32))"
-```
+> Tested 2026-04-16. All endpoints verified against live Google Sheets data.  
+> System: Emergent backend (FastAPI) + Emergent frontend (React/Vite)  
+> External client: OpenClaw
 
 ---
 
-## Endpoints
+## 1. Verified Endpoint List
 
-### 1. GET /api/orchestration/health
+| # | Method | Path | Auth | Purpose |
+|---|--------|------|------|---------|
+| 1 | GET | `/api/orchestration/health` | None | Uptime monitoring |
+| 2 | POST | `/api/orchestration/load-spv` | Bearer | Load filtered view model for SPV |
+| 3 | POST | `/api/orchestration/set-disclosure` | Bearer | Set disclosure level (blocked/teaser/preview/full) |
+| 4 | POST | `/api/orchestration/set-waterfall-permission` | Bearer | Grant/revoke waterfall visibility |
+| 5 | GET | `/api/orchestration/status/{spvId}` | Bearer | Full status intelligence for SPV |
+| 6 | POST | `/api/orchestration/resolve-visibility` | Bearer | Resolve what visibility the SPV should have |
+| 7 | GET | `/api/spv-visibility` | None | Visibility map for frontend consumption |
 
-Health check endpoint. No authentication required.
+---
 
-**Request:**
-```bash
-curl -X GET https://your-domain.com/api/orchestration/health
+## 2. Request/Response Examples
+
+### 2.1 Health Check
 ```
-
-**Response (200 OK):**
+GET /api/orchestration/health
+```
 ```json
-{
-  "ok": true,
-  "service": "ubuybox-emergent",
-  "version": "1.0.0"
-}
+{"ok": true, "service": "ubuybox-emergent", "version": "1.1.0"}
 ```
 
----
-
-### 2. POST /api/orchestration/load-spv
-
-Load SPV view model based on current disclosure level. Validates SPV exists in sheet-backed data and returns allowed view model. Does NOT modify source data.
-
-**Request:**
-```bash
-curl -X POST https://your-domain.com/api/orchestration/load-spv \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ubx_orch_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0" \
-  -d '{
-    "spvId": "SPV_011"
-  }'
+### 2.2 Load SPV — Valid (SPV_011 at full disclosure + waterfall permitted)
 ```
+POST /api/orchestration/load-spv
+Authorization: Bearer <token>
+Content-Type: application/json
 
-**Request Body:**
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| spvId | string | Yes | SPV identifier (e.g., "SPV_001") |
-
-**Response (200 OK):**
+{"spvId": "SPV_011"}
+```
 ```json
 {
   "success": true,
   "spvId": "SPV_011",
-  "disclosureLevel": "teaser",
+  "disclosureLevel": "full",
+  "visibilityState": "full",
+  "waterfallAvailable": true,
+  "waterfallVisible": true,
   "viewModel": {
-    "id": "SPV_011",
-    "name": "SPV_011",
+    "spvId": "SPV_011",
+    "visibilityState": "full",
     "dealCount": 1,
-    "disclosureLevel": "teaser"
+    "deals": [{
+      "dealId": "Deal_011",
+      "county": "DeKalb",
+      "state": "GA",
+      "location": "DeKalb, GA",
+      "address": "111 Poplar St",
+      "purchasePrice": 360000.0,
+      "monthlyPayment": 940.0,
+      "senior": 338400.0,
+      "mezz": 0,
+      "equity": 10800.0,
+      "totalCapital": 100000.0,
+      "agentCommission": 10800.0,
+      "netToSeller": 349200.0,
+      "units": 20,
+      "unitsSold": 0,
+      "unitSize": 5000.0,
+      "status": "Active",
+      "propertyType": "Commercial",
+      "businessUse": "BUY BOX..."
+    }],
+    "summary": {
+      "totalCapital": 100000.0,
+      "totalSenior": 338400.0,
+      "totalMezz": 0,
+      "totalEquity": 10800.0,
+      "avgPayment": 940.0,
+      "totalNetToSeller": 349200.0
+    },
+    "waterfall": {
+      "available": true,
+      "visible": true,
+      "capitalStack": {"senior": 338400.0, "mezz": 0, "equity": 10800.0, "total": 100000.0},
+      "distributions": {"netToSeller": 349200.0}
+    }
   },
-  "timestamp": "2026-04-16T17:10:48.471756"
+  "timestamp": "2026-04-16T17:38:05.062441"
 }
 ```
 
-**View Model by Disclosure Level:**
-
-| Level | Fields Returned |
-|-------|-----------------|
-| teaser | id, name, dealCount |
-| preview | id, name, dealCount, deals |
-| full | All fields including capital stack data |
-
-**Error Response (404 Not Found):**
+### 2.3 Load SPV — Teaser (SPV_012, default)
 ```json
 {
-  "error": "not_found",
-  "message": "SPV SPV_999 not found in source data",
-  "timestamp": "2026-04-16T17:10:56.529797"
+  "success": true,
+  "spvId": "SPV_012",
+  "disclosureLevel": "teaser",
+  "visibilityState": "teaser",
+  "waterfallAvailable": false,
+  "waterfallVisible": false,
+  "viewModel": {
+    "spvId": "SPV_012",
+    "visibilityState": "teaser",
+    "dealCount": 1,
+    "counties": ["Harris"],
+    "states": ["TX"],
+    "propertyTypes": ["20"],
+    "businessUses": ["BUY BOX..."],
+    "statuses": ["Pending"]
+  }
 }
 ```
 
----
-
-### 3. POST /api/orchestration/set-disclosure
-
-Set disclosure level for an SPV. Controls what data is visible at the app layer. Does NOT write to Google Sheets.
-
-**Request:**
-```bash
-curl -X POST https://your-domain.com/api/orchestration/set-disclosure \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ubx_orch_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0" \
-  -d '{
-    "spvId": "SPV_011",
-    "disclosureLevel": "preview"
-  }'
+### 2.4 Load SPV — Invalid
+```
+POST /api/orchestration/load-spv
+{"spvId": "SPV_999"}
+```
+```json
+HTTP 404
+{"error": "not_found", "message": "SPV SPV_999 not found in source data", "timestamp": "..."}
 ```
 
-**Request Body:**
-| Field | Type | Required | Allowed Values |
-|-------|------|----------|----------------|
-| spvId | string | Yes | SPV identifier |
-| disclosureLevel | string | Yes | "teaser", "preview", "full" |
-
-**Response (200 OK):**
+### 2.5 Set Disclosure
+```
+POST /api/orchestration/set-disclosure
+{"spvId": "SPV_011", "disclosureLevel": "preview"}
+```
 ```json
 {
   "success": true,
   "spvId": "SPV_011",
   "disclosureLevel": "preview",
-  "message": "Disclosure level updated (app layer only)",
-  "timestamp": "2026-04-16T17:10:48.681779"
+  "message": "Disclosure level updated (app layer only - Google Sheets unchanged)"
 }
 ```
 
-**Error Response (422 Unprocessable Entity):**
+### 2.6 Set Waterfall Permission
+```
+POST /api/orchestration/set-waterfall-permission
+{"spvId": "SPV_011", "permitted": true}
+```
 ```json
 {
-  "detail": [
-    {
-      "type": "literal_error",
-      "loc": ["body", "disclosureLevel"],
-      "msg": "Input should be 'teaser', 'preview' or 'full'"
-    }
-  ]
+  "success": true,
+  "spvId": "SPV_011",
+  "waterfallPermitted": true,
+  "message": "Waterfall permission updated (app layer only)"
 }
 ```
 
----
-
-### 4. GET /api/orchestration/status/:spvId
-
-Get comprehensive status for orchestration decisions.
-
-**Request:**
-```bash
-curl -X GET https://your-domain.com/api/orchestration/status/SPV_011 \
-  -H "Authorization: Bearer ubx_orch_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0"
+### 2.7 Status Intelligence
 ```
-
-**Response (200 OK - SPV Exists):**
+GET /api/orchestration/status/SPV_011
+```
 ```json
 {
+  "success": true,
   "spvId": "SPV_011",
   "exists": true,
-  "disclosureLevel": "preview",
-  "disclosureLastUpdated": "2026-04-16T17:10:48.681734",
+  "dealCount": 1,
+  "disclosureLevel": "full",
   "waterfallAvailable": true,
-  "requiredFieldsComplete": true,
-  "missingFields": [],
+  "waterfallVisible": true,
+  "waterfallPermitted": true,
+  "fieldsComplete": true,
   "safeToDisplay": true,
-  "summary": {
-    "dealCount": 1,
-    "totalCapital": 100000.0
-  },
-  "timestamp": "2026-04-16T17:10:56.369408"
+  "visibilityState": "full",
+  "missingFields": [],
+  "blockingReasons": [],
+  "summary": {"totalCapital": 100000.0, "dealCount": 1}
 }
 ```
 
-**Response (200 OK - SPV Not Found):**
+### 2.8 Status Intelligence — Invalid SPV
+```
+GET /api/orchestration/status/SPV_999
+```
 ```json
 {
+  "success": true,
   "spvId": "SPV_999",
   "exists": false,
+  "dealCount": 0,
   "disclosureLevel": null,
   "waterfallAvailable": false,
-  "requiredFieldsComplete": false,
+  "waterfallVisible": false,
+  "fieldsComplete": false,
   "safeToDisplay": false,
-  "reason": "SPV not found in source data",
-  "timestamp": "2026-04-16T17:10:56.529797"
+  "visibilityState": "blocked",
+  "missingFields": [],
+  "blockingReasons": ["SPV not found in source data"]
 }
 ```
 
-**Status Fields:**
-| Field | Type | Description |
-|-------|------|-------------|
-| exists | boolean | Whether SPV exists in Google Sheets |
-| disclosureLevel | string | Current disclosure level (teaser/preview/full) |
-| disclosureLastUpdated | string | ISO timestamp of last disclosure change |
-| waterfallAvailable | boolean | Whether capital stack data exists |
-| requiredFieldsComplete | boolean | Whether all required fields are filled |
-| missingFields | array | List of missing fields (max 5) |
-| safeToDisplay | boolean | Overall safety check for display |
-| summary | object | Quick stats (dealCount, totalCapital) |
+### 2.9 Resolve Visibility
+```
+POST /api/orchestration/resolve-visibility
+{"spvId": "SPV_011"}
+```
+```json
+{
+  "success": true,
+  "spvId": "SPV_011",
+  "resolvedVisibility": "full",
+  "disclosureLevelSet": "full",
+  "waterfallAvailable": true,
+  "waterfallVisible": true,
+  "waterfallPermitted": true,
+  "safeToDisplay": true,
+  "fieldsComplete": true,
+  "missingFields": [],
+  "blockingReasons": []
+}
+```
+
+### 2.10 Auth Failures
+```
+# No token
+HTTP 401 {"error": "unauthorized", "message": "Missing Authorization header"}
+
+# Wrong token
+HTTP 403 {"error": "forbidden", "message": "Invalid API token"}
+```
 
 ---
 
-## Error Codes
+## 3. Visibility Logic Summary
 
-| Status | Error | Description |
-|--------|-------|-------------|
-| 401 | unauthorized | Missing or invalid Authorization header |
-| 403 | forbidden | Invalid API token |
-| 404 | not_found | SPV not found in source data |
-| 422 | validation_error | Invalid request body |
-| 500 | internal_error | Server error (check logs) |
-| 502 | bad_gateway | Failed to fetch from Google Sheets |
+### Disclosure Levels
+| Level | What's Shown | What's Hidden |
+|-------|-------------|---------------|
+| **blocked** | SPV ID, deal count, blocked message | Everything else |
+| **teaser** | SPV ID, county, state, property type, status, deal count | Price, capital stack, address, seller, waterfall |
+| **preview** | + Purchase price, monthly payment, senior/mezz/equity, units, status | Address, seller identity, full waterfall splits |
+| **full** | + Address, agent commission, net to seller, unit size, business use | Seller name (intentionally excluded), waterfall (gated separately) |
+
+### Resolution Rules
+```
+if SPV not found           → blocked
+if blocking issues exist   → blocked
+if disclosure="full" but fieldsComplete=false
+  → preview (if capital stack exists)
+  → teaser (if no capital stack)
+if disclosure="preview" but no capital stack → teaser
+otherwise → respect the set disclosure level
+```
 
 ---
 
-## Example Workflow
+## 4. Waterfall Gating Summary
+
+**Waterfall is visible only when ALL five conditions are met:**
+
+| # | Condition | Source | Current SPV_011 |
+|---|-----------|--------|-----------------|
+| 1 | `disclosureLevel = "full"` | OpenClaw sets via `set-disclosure` | full |
+| 2 | `waterfallAvailable = true` | Computed from deal data validation | true |
+| 3 | `fieldsComplete = true` | All required sheet fields populated | true |
+| 4 | `safeToDisplay = true` | No blocking issues (identity + price valid) | true |
+| 5 | `waterfallPermitted = true` | OpenClaw sets via `set-waterfall-permission` | true |
+
+**If any condition is false, waterfall is hidden.**
+
+Current state across all SPVs:
+- SPV_011: waterfall **visible** (all 5 conditions met after sheet update)
+- SPV_012-030: waterfall **gated** (Status empty → fieldsComplete=false)
+
+---
+
+## 5. OpenClaw-Safe Calling Order
+
+### Initial SPV Onboarding
+```
+1. GET  /api/orchestration/health          → verify Emergent is up
+2. GET  /api/orchestration/status/{spvId}  → check if SPV exists, field completeness
+3. POST /api/orchestration/set-disclosure   → set to "teaser" (safe default)
+4. POST /api/orchestration/load-spv        → verify teaser view model looks correct
+```
+
+### Promotion to Preview
+```
+1. GET  /api/orchestration/status/{spvId}  → confirm fieldsComplete=true, no blockingReasons
+2. POST /api/orchestration/set-disclosure   → {"spvId": "...", "disclosureLevel": "preview"}
+3. POST /api/orchestration/resolve-visibility → verify resolvedVisibility="preview"
+4. POST /api/orchestration/load-spv        → verify preview view model
+```
+
+### Promotion to Full + Waterfall
+```
+1. GET  /api/orchestration/status/{spvId}  → confirm safeToDisplay=true, waterfallAvailable=true
+2. POST /api/orchestration/set-disclosure   → {"spvId": "...", "disclosureLevel": "full"}
+3. POST /api/orchestration/set-waterfall-permission → {"spvId": "...", "permitted": true}
+4. POST /api/orchestration/resolve-visibility → verify resolvedVisibility="full", waterfallVisible=true
+5. POST /api/orchestration/load-spv        → verify full view model with waterfall data
+```
+
+### Demotion / Emergency Block
+```
+POST /api/orchestration/set-disclosure → {"spvId": "...", "disclosureLevel": "blocked"}
+POST /api/orchestration/set-waterfall-permission → {"spvId": "...", "permitted": false}
+```
+
+### Safety Rules for OpenClaw
+1. **Always check `status/{spvId}` before promoting** — never blindly set "full" without verifying `fieldsComplete` and `safeToDisplay`
+2. **Never skip disclosure levels** — promote teaser → preview → full, not teaser → full
+3. **Waterfall permission is separate from disclosure** — even at "full", waterfall is hidden until explicitly permitted
+4. **Use `resolve-visibility` as a sanity check** — if `resolvedVisibility` doesn't match what you set, the data doesn't support that level
+5. **No writes to Google Sheets** — all orchestration state is app-layer only. Sheet corrections must happen in the sheet itself
+
+---
+
+## 6. Issues Fixed During This Session
+
+| # | Issue | Fix | Verified |
+|---|-------|-----|----------|
+| 1 | Orchestration endpoints written but never tested | Restarted backend, ran comprehensive curl tests against all 7 endpoints | Yes |
+| 2 | Frontend showed all data regardless of visibility | Added `fetchSPVVisibility()` API, `isFieldVisible()` helper, visibility prop on DealCard, masking on all pages | Yes |
+| 3 | Waterfalls page used hardcoded mock data | Replaced with live data from Google Sheets, gated by `waterfallVisible` per SPV | Yes |
+| 4 | SPV Registry had no visibility indicators | Added Visibility (badge) and Waterfall (Gated/Visible) columns | Yes |
+| 5 | DealDetail showed all fields unconditionally | Added field-level masking based on visibility state, waterfall section only shown when `waterfallVisible=true` | Yes |
+| 6 | No public endpoint for frontend to read visibility state | Added `GET /api/spv-visibility` (no auth required) | Yes |
+
+---
+
+## Security Note
+
+**Rotate the orchestration token before production.** The test token `ubx_orch_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0` was used in all testing and appears in logs. Generate a new one:
 
 ```bash
-TOKEN="ubx_orch_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0"
-BASE_URL="http://localhost:8001"
-
-# 1. Check health
-curl -s "$BASE_URL/api/orchestration/health"
-
-# 2. Check SPV status before display
-curl -s "$BASE_URL/api/orchestration/status/SPV_011" \
-  -H "Authorization: Bearer $TOKEN"
-
-# 3. If safeToDisplay=true, set disclosure level
-curl -s -X POST "$BASE_URL/api/orchestration/set-disclosure" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"spvId": "SPV_011", "disclosureLevel": "preview"}'
-
-# 4. Load SPV view model for display
-curl -s -X POST "$BASE_URL/api/orchestration/load-spv" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"spvId": "SPV_011"}'
+python3 -c "import secrets; print('ubx_orch_' + secrets.token_hex(32))"
 ```
 
----
-
-## Security Notes
-
-1. **Token Management**: Change the default token in production
-2. **HTTPS**: Always use HTTPS in production
-3. **Logging**: Tokens are never logged, only existence is logged
-4. **Rate Limiting**: Consider adding rate limiting for production
-5. **No Data Writes**: Orchestration layer cannot write to Google Sheets
-
----
-
-## Architecture Diagram
-
-```
-┌─────────────────┐     ┌──────────────────────┐     ┌─────────────────┐
-│    OpenClaw     │────▶│  Orchestration API   │────▶│  Google Sheets  │
-│  (Controller)   │     │  (App Layer State)   │     │ (Source of Truth)│
-└─────────────────┘     └──────────────────────┘     └─────────────────┘
-        │                         │
-        │ Bearer Token Auth       │ Read-Only
-        │                         │
-        ▼                         ▼
-   Set Disclosure           Validate SPV Exists
-   Load View Model          Fetch Current Data
-   Check Status             Filter by Disclosure
-```
-
-**Key Principle**: OpenClaw controls *how* data is displayed, not *what* data exists.
+Update `/app/backend/.env` → `ORCHESTRATION_API_TOKEN` and restart the backend.

@@ -1,132 +1,71 @@
-# UBUYBOX Dashboard - Product Requirements Document
+# UBUYBOX SPV Dashboard — Product Requirements Document
 
-## Project Overview
-**Name:** UBUYBOX Investment Dashboard  
-**Type:** Full-Stack Fintech SaaS Dashboard  
-**Tech Stack:** 
-- Backend: FastAPI (Python) + Google Sheets API
-- Frontend: Vite + React 18 + TypeScript + Tailwind CSS  
-**Updated:** March 28, 2026
+## Original Problem Statement
+Build a full-stack real estate SPV dashboard (UBUYBOX):
+1. Recreate the UI using React, Tailwind CSS, and Vite
+2. Build a backend API to fetch live data from a read-only Google Sheet
+3. Create a production-safe orchestration interface for an external client ("OpenClaw") to control SPV visibility, disclosure states, and waterfall gating at the app layer without mutating the Google Sheet
+
+## System Labels
+- **Google Sheets**: Source of truth (read-only)
+- **Emergent backend**: FastAPI orchestration/data API
+- **Emergent frontend**: React/Vite/Tailwind UI
+- **OpenClaw**: External orchestration client
 
 ## Architecture
+- Frontend: React + TypeScript + Vite 5 + Tailwind CSS (port 3000)
+- Backend: FastAPI + Uvicorn (port 8001)
+- Data source: Google Sheets via CSV export (read-only)
+- Orchestration state: In-memory (app-layer only, never writes to Sheets)
+- Auth: Bearer token for orchestration endpoints
 
-```
-Google Sheets (Source of Truth)
-       ↓
-  Backend API (FastAPI :8001)
-       ↓
-  Frontend (Vite :3000 with proxy)
-       ↓
-  UBUYBOX Dashboard UI
-```
+## What's Been Implemented
 
-## Data Source
-**Google Sheet:** `1N8-PD3654Qcd65r9Etc2Z1ayZbHB0X5m__URQYFYVeY`
+### Phase 1: UI Recreation (Complete)
+- Dashboard with stat cards, recent deals, activity feed
+- Capital Stack page with portfolio distribution visualization
+- SPV Registry with visibility and waterfall columns
+- Deal Detail page with capital stack visualization and metrics
+- Waterfalls page with live data and gating
+- Sidebar navigation, header, responsive layout
 
-### Sheet Fields:
-- Deal_ID, SPV_ID, Seller Name, Property Address
-- State, County, Purchase Price, Monthly Payment To Seller
-- Seller Carryback, Agent's Commission, Cash At Closing To Seller
-- Net Cash To Seller, Status, TOTAL_CAPITAL_REQUIRED
-- UNIT_SIZE, TOTAL_UNITS, UNITS_SOLD, Property_Type
+### Phase 2: Backend Data Pipeline (Complete)
+- Google Sheets CSV parsing via httpx
+- Deal normalization (price, status, capital stack computation)
+- Endpoints: /api/deals, /api/dashboard, /api/spvs, /api/deals/:id, /api/health
 
-## API Endpoints
+### Phase 3: Orchestration API (Complete — Tested 2026-04-16)
+- Health check: GET /api/orchestration/health
+- Load SPV: POST /api/orchestration/load-spv
+- Set Disclosure: POST /api/orchestration/set-disclosure
+- Set Waterfall Permission: POST /api/orchestration/set-waterfall-permission
+- Status Intelligence: GET /api/orchestration/status/{spvId}
+- Resolve Visibility: POST /api/orchestration/resolve-visibility
+- Frontend Visibility Map: GET /api/spv-visibility
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/health` | GET | Health check |
-| `/api/deals` | GET | All deals from Google Sheets |
-| `/api/deals/:id` | GET | Single deal by Deal_ID |
-| `/api/spvs` | GET | Deals grouped by SPV_ID |
-| `/api/dashboard` | GET | Aggregated metrics |
+### Phase 4: Frontend Visibility Enforcement (Complete — Tested 2026-04-16)
+- DealCard accepts visibility prop, masks fields per disclosure level
+- Dashboard, CapitalStack, SPVRegistry, DealDetail, Waterfalls all enforce masking
+- blocked: shows SPV ID and blocked message only
+- teaser: shows county, state, property type, status — hides price, capital stack, seller
+- preview: shows price, capital stack, units — hides seller, address, waterfall
+- full: shows all permitted fields — waterfall gated separately
+- Waterfalls page: shows data only when waterfallVisible=true per SPV
 
-## Data Transformation
+## Backlog
 
-```typescript
-{
-  deal: Deal_ID,
-  spv: SPV_ID,
-  location: `${County}, ${State}`,
-  price: Purchase_Price,
-  payment: Monthly_Payment_To_Seller,
-  senior: Seller_Carryback,
-  equity: Cash_At_Closing_To_Seller,
-  mezz: totalCapital - senior - equity,  // Computed
-  status: Status,
-  totalCapital: TOTAL_CAPITAL_REQUIRED
-}
-```
+### P1: Persistent Orchestration State
+- Currently in-memory (resets on backend restart)
+- Consider MongoDB or file-based persistence for disclosure levels and waterfall permissions
 
-## What's Been Implemented ✅
+### P2: Data Quality
+- Property_Type column in Google Sheets contains numeric values (20, 100, etc.) instead of labels
+- SPV_011 Property_Type shows empty despite user stating "Mixed Use" — sheet update needed
+- Only SPV_011 has a populated Status field; SPV_012-030 still have blank Status
 
-### Backend (FastAPI)
-- ✅ Google Sheets CSV export integration
-- ✅ GET /api/deals - Returns 20 deals
-- ✅ GET /api/deals/:id - Single deal lookup
-- ✅ GET /api/spvs - Grouped SPV data
-- ✅ GET /api/dashboard - Aggregated metrics
-- ✅ Data transformation and number parsing
-- ✅ Status normalization (Active/Pending/Locked)
+### P3: Refactoring
+- server.py is large (~1200 lines). Consider splitting into route modules as codebase grows
 
-### Frontend (React + TypeScript)
-- ✅ API service layer (`/src/api/deals.ts`)
-- ✅ Dashboard with live stats from Google Sheets
-- ✅ Capital Stack page with all deals
-- ✅ Deal Detail page with API fetch
-- ✅ SPV Registry with grouped data
-- ✅ Loading states and error handling
-- ✅ Custom UBUYBOX logo
-
-### Live Metrics (from Google Sheets)
-- **20 Total Deals**
-- **20 Active SPVs**
-- **$13.79M Total Capital**
-- **$1,107 Avg Monthly Payment**
-- **Capital Distribution:** 48% Senior, 50% Mezz, 1.5% Equity
-
-## Test Results
-- Backend: 100% pass (5/5 endpoints)
-- Frontend: 95% pass (all pages load with live data)
-
-## Files Structure
-
-```
-/app/
-├── backend/
-│   ├── server.py         # FastAPI with Google Sheets integration
-│   ├── requirements.txt
-│   └── .env
-├── frontend/
-│   ├── src/
-│   │   ├── api/deals.ts  # API service layer
-│   │   ├── pages/        # Dashboard, CapitalStack, DealDetail, etc.
-│   │   └── components/   # DealCard, StatCard, etc.
-│   ├── public/logo.png   # Custom UBUYBOX logo
-│   └── vite.config.ts    # Proxy configuration
-```
-
-## Example API Response
-
-```json
-// GET /api/deals/Deal_011
-{
-  "id": "Deal_011",
-  "deal": "Deal_011",
-  "spv": "SPV_011",
-  "address": "111 Poplar St",
-  "location": "DeKalb, GA",
-  "price": 360000,
-  "payment": 940,
-  "senior": 338400,
-  "mezz": 0,
-  "equity": 10800,
-  "status": "Pending",
-  "totalCapital": 100000
-}
-```
-
-## Next Tasks
-1. Add authentication for secure access
-2. Implement real-time sync with WebSockets
-3. Add filtering/sorting on Capital Stack page
-4. Enable document upload functionality
+### P4: Security
+- Rotate orchestration token before production deployment
+- Consider rate limiting on orchestration endpoints

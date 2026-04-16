@@ -1,0 +1,206 @@
+{
+  "report_version": "3.0",
+  "test_date": "2026-04-16",
+  "system_labels": {
+    "source_of_truth": "Google Sheets (read-only, spreadsheet ID: 1N8-PD3654Qcd65r9Etc2Z1ayZbHB0X5m__URQYFYVeY)",
+    "backend_under_test": "Emergent backend (FastAPI on port 8001)",
+    "frontend_under_test": "Emergent frontend (React/Vite on port 3000)",
+    "external_client": "OpenClaw (orchestration client, NOT the app under test)"
+  },
+
+  "section_1_backend_endpoint_results": {
+    "summary": "7/7 endpoints verified, all auth scenarios pass",
+    "endpoints": [
+      {
+        "endpoint": "GET /api/orchestration/health",
+        "auth_required": false,
+        "result": "PASS",
+        "response": {"ok": true, "service": "ubuybox-emergent", "version": "1.1.0"}
+      },
+      {
+        "endpoint": "POST /api/orchestration/load-spv",
+        "auth_required": true,
+        "result": "PASS",
+        "tests": {
+          "valid_spv_SPV_011": "Returns full view model with visibility filtering applied",
+          "valid_spv_SPV_012": "Returns teaser view model (default disclosure)",
+          "invalid_spv_SPV_999": "Returns 404 not_found",
+          "missing_auth": "Returns 401 unauthorized",
+          "wrong_token": "Returns 403 forbidden"
+        }
+      },
+      {
+        "endpoint": "POST /api/orchestration/set-disclosure",
+        "auth_required": true,
+        "result": "PASS",
+        "tests": {
+          "set_blocked": "PASS — SPV_011 disclosure set to blocked, load-spv confirms blocked view",
+          "set_teaser": "PASS — SPV_011 disclosure set to teaser, load-spv confirms teaser view",
+          "set_preview": "PASS — SPV_011 disclosure set to preview, load-spv confirms preview view",
+          "set_full": "PASS — SPV_011 disclosure set to full, load-spv confirms full view",
+          "invalid_spv": "PASS — SPV_999 returns 404"
+        }
+      },
+      {
+        "endpoint": "GET /api/orchestration/status/{spvId}",
+        "auth_required": true,
+        "result": "PASS",
+        "tests": {
+          "valid_SPV_011": "Returns exists=true, fieldsComplete=true, safeToDisplay=true, waterfallAvailable=true",
+          "valid_SPV_012": "Returns exists=true, fieldsComplete=false (Status missing), safeToDisplay=false",
+          "invalid_SPV_999": "Returns exists=false, visibilityState=blocked, blockingReasons=['SPV not found']",
+          "missing_auth": "Returns 401"
+        }
+      },
+      {
+        "endpoint": "POST /api/orchestration/resolve-visibility",
+        "auth_required": true,
+        "result": "PASS",
+        "tests": {
+          "valid_SPV_011": "Returns resolvedVisibility matching disclosure level when data supports it",
+          "valid_SPV_012": "Returns resolvedVisibility=teaser (Status missing limits upgrade)",
+          "invalid_SPV_999": "Returns resolvedVisibility=blocked",
+          "missing_auth": "Returns 401"
+        }
+      },
+      {
+        "endpoint": "POST /api/orchestration/set-waterfall-permission",
+        "auth_required": true,
+        "result": "PASS",
+        "tests": {
+          "permit_SPV_011": "PASS — waterfallPermitted=true confirmed",
+          "deny_SPV_012": "PASS — waterfallPermitted=false confirmed",
+          "invalid_spv": "PASS — SPV_999 returns 404"
+        }
+      },
+      {
+        "endpoint": "GET /api/spv-visibility",
+        "auth_required": false,
+        "result": "PASS",
+        "description": "Public endpoint for Emergent frontend. Returns visibility map for all 20 SPVs.",
+        "sample": {
+          "SPV_011": {"visibilityState": "full", "waterfallVisible": true},
+          "SPV_012": {"visibilityState": "teaser", "waterfallVisible": false}
+        }
+      }
+    ]
+  },
+
+  "section_2_frontend_visibility_masking_results": {
+    "summary": "All 5 pages correctly enforce visibility masking based on orchestration state",
+    "pages": [
+      {
+        "page": "Dashboard",
+        "result": "PASS",
+        "observations": [
+          "Deal_011 (full): Shows price, capital stack, monthly payment, Enter Deal button, status badge",
+          "Deal_012 (teaser): Shows 'Price restricted', 'Capital stack restricted', 'Restricted' for payment, 'Teaser View' indicator, no Enter Deal button"
+        ]
+      },
+      {
+        "page": "Capital Stack",
+        "result": "PASS",
+        "observations": [
+          "Full-visibility deals show all capital stack data",
+          "Teaser-visibility deals show restricted labels",
+          "Aggregate portfolio stats still display (non-sensitive totals)"
+        ]
+      },
+      {
+        "page": "SPV Registry",
+        "result": "PASS",
+        "observations": [
+          "New Visibility column: SPV_011 shows 'Full' (green), others show 'Teaser' (amber)",
+          "New Waterfall column: SPV_011 shows 'Visible' (green), others show 'Gated'",
+          "Total Capital column: SPV_011 shows $100K, teaser SPVs show 'Restricted'"
+        ]
+      },
+      {
+        "page": "Waterfalls",
+        "result": "PASS",
+        "observations": [
+          "SPVs with Waterfall Access: 1 (SPV_011)",
+          "SPVs Gated: 19",
+          "SPV_011 waterfall shows Senior $338K, Equity $11K, Total Capital $100K, Net Distribution $349K",
+          "Gated SPVs listed with visibility states and 'Waterfall Not Available' labels",
+          "When all SPVs gated: shows 'No Waterfalls Available' with explanatory text"
+        ]
+      },
+      {
+        "page": "Deal Detail (Deal_011)",
+        "result": "PASS",
+        "observations": [
+          "Full view: Shows address (111 Poplar St), seller (Test 011), all metrics, capital stack visualization",
+          "No visibility badge shown (full = no restrictions)",
+          "Waterfall section visible when waterfallVisible=true",
+          "Key metrics all visible: Monthly Payment, LTV Ratio, Equity %, Net to Seller"
+        ]
+      }
+    ]
+  },
+
+  "section_3_live_data_quality_findings": {
+    "source": "Google Sheets (live fetch at 2026-04-16T17:39:00Z)",
+    "total_deals": 20,
+    "total_spvs": 20,
+    "findings": [
+      {
+        "finding": "SPV_011 Status updated",
+        "detail": "Status field now contains 'Active' (previously empty). This fix causes fieldsComplete=true, safeToDisplay=true, waterfallAvailable=true for SPV_011.",
+        "impact": "SPV_011 can now reach 'full' visibility and waterfall can be unlocked."
+      },
+      {
+        "finding": "SPV_011 Property_Type still empty in sheet",
+        "detail": "User stated Property_Type should be 'Mixed Use', but live sheet returns empty string. Emergent backend defaults empty Property_Type to 'Commercial'.",
+        "impact": "Minor. The Property_Type field defaults to 'Commercial' instead of 'Mixed Use'. Sheet update needed."
+      },
+      {
+        "finding": "All other SPVs (012-030) still have empty Status",
+        "detail": "Only SPV_011 has a populated Status field. SPV_012 through SPV_030 have blank Status, causing fieldsComplete=false and waterfallAvailable=false.",
+        "impact": "These SPVs cannot be promoted to 'full' visibility or have waterfalls unlocked until their Status fields are populated in Google Sheets."
+      },
+      {
+        "finding": "Property_Type column contains numeric values for most deals",
+        "detail": "Deals 012-020 show values like '20', '18', '19'. Deals 021-030 show '87.5', '100', '112'. These appear to be TOTAL_UNITS or other numeric data, not property type labels.",
+        "impact": "Property types display as numbers ('20', '100') instead of labels ('Commercial', 'Mixed Use'). Sheet data cleanup recommended."
+      }
+    ]
+  },
+
+  "section_4_security_note": {
+    "warning": "ORCHESTRATION TOKEN MUST BE ROTATED AFTER TESTING",
+    "detail": "The token 'ubx_orch_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0' was used extensively in testing and appears in test logs, curl commands, and this report. Before production deployment or sharing with OpenClaw, generate a new secure token.",
+    "rotation_command": "python3 -c \"import secrets; print('ubx_orch_' + secrets.token_hex(32))\"",
+    "update_location": "/app/backend/.env → ORCHESTRATION_API_TOKEN"
+  },
+
+  "section_5_regression_test_spv_011": {
+    "context": "SPV_011 was updated in Google Sheets with Status='Active'. Regression verifies orchestration endpoints reflect live sheet changes.",
+    "before_sheet_update": {
+      "rawStatus": "",
+      "fieldsComplete": false,
+      "safeToDisplay": false,
+      "waterfallAvailable": false,
+      "resolvedVisibility_at_full_disclosure": "preview (downgraded from full due to missing Status)"
+    },
+    "after_sheet_update": {
+      "rawStatus": "Active",
+      "propertyType_in_sheet": "(empty — defaults to 'Commercial')",
+      "propertyType_in_api": "Commercial",
+      "fieldsComplete": true,
+      "safeToDisplay": true,
+      "waterfallAvailable": true,
+      "resolvedVisibility_at_full_disclosure": "full",
+      "waterfallVisible_when_permitted": true
+    },
+    "endpoints_verified": [
+      "GET /api/orchestration/status/SPV_011 — fieldsComplete=true, safeToDisplay=true, waterfallAvailable=true",
+      "POST /api/orchestration/load-spv — returns full view model with waterfall data",
+      "POST /api/orchestration/resolve-visibility — resolvedVisibility='full' when disclosure set to full"
+    ],
+    "result": "PASS — All three endpoints correctly reflect live sheet data changes"
+  },
+
+  "issues_found": 0,
+  "overall_result": "ALL PASS"
+}
