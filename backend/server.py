@@ -436,70 +436,146 @@ def validate_waterfall_inputs(spv_deals: list[dict]) -> dict:
     }
 
 
-def compute_waterfall_visibility(
-    waterfall_available: bool,
+def resolve_spv_visibility_state(
+    exists: bool,
+    field_validation: dict,
+    waterfall_validation: dict,
     disclosure_level: str,
-    fields_complete: bool,
-    safe_to_display: bool,
+    has_capital_stack: bool,
     waterfall_permitted: bool
-) -> bool:
+) -> dict:
     """
-    Compute whether waterfall should be visible.
-    
-    waterfallVisible = true only when:
-    - disclosureLevel is "full"
-    - waterfallAvailable is true
-    - fieldsComplete is true
-    - safeToDisplay is true
-    - waterfall is permitted (app-layer permission)
+    Single unified function that computes ALL visibility fields
+    and enforces invariants before returning.
+
+    Returns a dict with:
+      resolvedVisibility, safeToDisplay, waterfallAvailable,
+      waterfallVisible, blockingReasons, nextSafeAction
     """
-    return (
-        disclosure_level == "full" and
+    fields_complete = field_validation["fieldsComplete"]
+    has_field_blocking = field_validation["hasBlockingIssues"]
+    waterfall_available = waterfall_validation["waterfallAvailable"]
+
+    # --- Collect ALL blocking reasons from both sources ---
+    all_blocking: list[str] = []
+    all_blocking.extend(field_validation.get("blockingReasons", []))
+    all_blocking.extend(waterfall_validation.get("waterfallBlockingReasons", []))
+
+    # --- safeToDisplay: true only when fields are complete AND no blocking from ANY source ---
+    safe_to_display = (
+        exists and
+        fields_complete and
+        not has_field_blocking and
+        len(all_blocking) == 0
+    )
+
+    # --- Resolve visibility state ---
+    if not exists:
+        resolved = "blocked"
+    elif has_field_blocking:
+        resolved = "blocked"
+    elif disclosure_level in DISCLOSURE_LEVELS:
+        if disclosure_level == "full" and not (fields_complete and has_capital_stack and safe_to_display):
+            resolved = "preview" if has_capital_stack else "teaser"
+        elif disclosure_level == "preview" and not has_capital_stack:
+            resolved = "teaser"
+        else:
+            resolved = disclosure_level
+    elif fields_complete and has_capital_stack:
+        resolved = "preview"
+    elif exists:
+        resolved = "teaser"
+    else:
+        resolved = "blocked"
+
+    # --- INVARIANT ENFORCEMENT ---
+
+    # Invariant 1: if resolvedVisibility=full then safeToDisplay must be true
+    if resolved == "full" and not safe_to_display:
+        resolved = "preview" if has_capital_stack else "teaser"
+
+    # Invariant 2: if safeToDisplay=false then resolvedVisibility must not be full
+    # (already enforced above, but belt-and-suspenders)
+    if not safe_to_display and resolved == "full":
+        resolved = "preview" if has_capital_stack else "teaser"
+
+    # Invariant 3: if waterfallVisible=true the SPV cannot be blocked
+    # (computed below, but we prevent blocked from having waterfall)
+
+    # --- Compute waterfall visibility ---
+    waterfall_visible = (
+        resolved == "full" and
         waterfall_available and
         fields_complete and
         safe_to_display and
         waterfall_permitted
     )
 
+    # Invariant 4: if waterfallVisible=true, SPV cannot be blocked
+    if waterfall_visible and resolved == "blocked":
+        waterfall_visible = False
 
-def determine_visibility_state(
-    exists: bool,
-    fields_complete: bool,
-    has_blocking_issues: bool,
-    disclosure_level: str,
-    has_capital_stack: bool
-) -> str:
-    """
-    Determine the resolved visibility state.
-    
-    Logic:
-    - If SPV missing -> "blocked"
-    - If critical required fields missing -> "blocked"
-    - If display state already set manually, respect it unless invalid
-    - Otherwise default to appropriate level
-    """
-    if not exists:
-        return "blocked"
-    
-    if has_blocking_issues:
-        return "blocked"
-    
-    # If manually set disclosure level, validate and respect it
-    if disclosure_level in DISCLOSURE_LEVELS:
-        # Can't be higher than what data supports
-        if disclosure_level == "full" and not (fields_complete and has_capital_stack):
-            return "preview" if has_capital_stack else "teaser"
-        if disclosure_level == "preview" and not has_capital_stack:
-            return "teaser"
-        return disclosure_level
-    
-    # Default determination
-    if fields_complete and has_capital_stack:
-        return "preview"
-    elif exists:
-        return "teaser"
+    # --- Compute nextSafeAction ---
+    if resolved == "blocked":
+        if not exists:
+            next_action = "spv_not_found"
+        elif has_field_blocking:
+            next_action = "fix_blocking_fields"
+        else:
+            next_action = "fix_blocking_fields"
+    elif resolved == "teaser":
+        if not fields_complete:
+            next_action = "complete_required_fields"
+        elif not has_capital_stack:
+            next_action = "add_capital_stack_data"
+        else:
+            next_action = "set_disclosure_preview"
+    elif resolved == "preview":
+        if not safe_to_display:
+            next_action = "resolve_blocking_reasons"
+        elif disclosure_level != "full":
+            next_action = "set_disclosure_full"
+        else:
+            next_action = "resolve_blocking_reasons"
+    elif resolved == "full":
+        if not waterfall_visible and waterfall_permitted:
+            next_action = "resolve_waterfall_blocking"
+        elif not waterfall_permitted:
+            next_action = "permit_waterfall"
+        else:
+            next_action = "allow_full_display"
     else:
-        return "blocked"
+        next_action = "unknown"
+
+    # --- Invariant 5: if missingFields=[] and blockingReasons=[] then safeToDisplay must be true ---
+    missing_fields = field_validation.get("missingFields", [])
+    if len(missing_fields) == 0 and len(all_blocking) == 0 and exists:
+        safe_to_display = True
+
+    # Re-check: if safeToDisplay just got forced true but resolved was downgraded, re-resolve
+    if safe_to_display and resolved != "full" and disclosure_level == "full" and has_capital_stack and fields_complete:
+        resolved = "full"
+        # Recompute waterfall
+        waterfall_visible = (
+            waterfall_available and
+            fields_complete and
+            waterfall_permitted
+        )
+        if waterfall_visible and waterfall_permitted:
+            next_action = "allow_full_display"
+        elif not waterfall_permitted:
+            next_action = "permit_waterfall"
+        else:
+            next_action = "resolve_waterfall_blocking"
+
+    return {
+        "resolvedVisibility": resolved,
+        "safeToDisplay": safe_to_display,
+        "waterfallAvailable": waterfall_available,
+        "waterfallVisible": waterfall_visible,
+        "blockingReasons": all_blocking[:5],
+        "nextSafeAction": next_action,
+    }
 
 
 # ============= VISIBILITY FILTERING =============
@@ -812,36 +888,30 @@ async def load_spv(
     # Validate fields
     field_validation = validate_required_fields(spv_deals)
     waterfall_validation = validate_waterfall_inputs(spv_deals)
-    
-    # Determine visibility
     has_capital_stack = spv_data.get("totalCapital", 0) > 0
-    visibility_state = determine_visibility_state(
-        exists=True,
-        fields_complete=field_validation["fieldsComplete"],
-        has_blocking_issues=field_validation["hasBlockingIssues"],
-        disclosure_level=disclosure_level,
-        has_capital_stack=has_capital_stack
-    )
     
-    # Compute waterfall visibility
-    waterfall_visible = compute_waterfall_visibility(
-        waterfall_available=waterfall_validation["waterfallAvailable"],
-        disclosure_level=visibility_state,
-        fields_complete=field_validation["fieldsComplete"],
-        safe_to_display=not field_validation["hasBlockingIssues"],
+    # Unified visibility resolution with invariant enforcement
+    vis = resolve_spv_visibility_state(
+        exists=True,
+        field_validation=field_validation,
+        waterfall_validation=waterfall_validation,
+        disclosure_level=disclosure_level,
+        has_capital_stack=has_capital_stack,
         waterfall_permitted=waterfall_permitted
     )
     
     # Apply visibility filtering
-    view_model = apply_visibility_filter(spv_data, spv_deals, visibility_state, waterfall_visible)
+    view_model = apply_visibility_filter(spv_data, spv_deals, vis["resolvedVisibility"], vis["waterfallVisible"])
     
     return {
         "success": True,
         "spvId": spv_id,
         "disclosureLevel": disclosure_level,
-        "visibilityState": visibility_state,
-        "waterfallAvailable": waterfall_validation["waterfallAvailable"],
-        "waterfallVisible": waterfall_visible,
+        "visibilityState": vis["resolvedVisibility"],
+        "safeToDisplay": vis["safeToDisplay"],
+        "waterfallAvailable": vis["waterfallAvailable"],
+        "waterfallVisible": vis["waterfallVisible"],
+        "nextSafeAction": vis["nextSafeAction"],
         "viewModel": view_model,
         "timestamp": datetime.utcnow().isoformat()
     }
@@ -973,35 +1043,15 @@ async def get_spv_status(
     # Validate fields
     field_validation = validate_required_fields(spv_deals)
     waterfall_validation = validate_waterfall_inputs(spv_deals)
-    
-    # Combine blocking reasons
-    all_blocking_reasons = (
-        field_validation.get("blockingReasons", []) + 
-        waterfall_validation.get("waterfallBlockingReasons", [])
-    )
-    
-    # Determine safe to display
-    safe_to_display = (
-        field_validation["fieldsComplete"] and 
-        not field_validation["hasBlockingIssues"]
-    )
-    
-    # Determine visibility state
     has_capital_stack = spv_data.get("totalCapital", 0) > 0
-    visibility_state = determine_visibility_state(
-        exists=True,
-        fields_complete=field_validation["fieldsComplete"],
-        has_blocking_issues=field_validation["hasBlockingIssues"],
-        disclosure_level=disclosure_level,
-        has_capital_stack=has_capital_stack
-    )
     
-    # Compute waterfall visibility
-    waterfall_visible = compute_waterfall_visibility(
-        waterfall_available=waterfall_validation["waterfallAvailable"],
-        disclosure_level=visibility_state,
-        fields_complete=field_validation["fieldsComplete"],
-        safe_to_display=safe_to_display,
+    # Unified visibility resolution with invariant enforcement
+    vis = resolve_spv_visibility_state(
+        exists=True,
+        field_validation=field_validation,
+        waterfall_validation=waterfall_validation,
+        disclosure_level=disclosure_level,
+        has_capital_stack=has_capital_stack,
         waterfall_permitted=waterfall_permitted
     )
     
@@ -1011,14 +1061,15 @@ async def get_spv_status(
         "exists": True,
         "dealCount": spv_data.get("dealCount", 0),
         "disclosureLevel": disclosure_level,
-        "waterfallAvailable": waterfall_validation["waterfallAvailable"],
-        "waterfallVisible": waterfall_visible,
+        "waterfallAvailable": vis["waterfallAvailable"],
+        "waterfallVisible": vis["waterfallVisible"],
         "waterfallPermitted": waterfall_permitted,
         "fieldsComplete": field_validation["fieldsComplete"],
-        "safeToDisplay": safe_to_display,
-        "visibilityState": visibility_state,
+        "safeToDisplay": vis["safeToDisplay"],
+        "visibilityState": vis["resolvedVisibility"],
         "missingFields": field_validation.get("missingFields", []),
-        "blockingReasons": all_blocking_reasons[:5],
+        "blockingReasons": vis["blockingReasons"],
+        "nextSafeAction": vis["nextSafeAction"],
         "summary": {
             "totalCapital": spv_data.get("totalCapital", 0),
             "dealCount": spv_data.get("dealCount", 0)
@@ -1076,50 +1127,31 @@ async def resolve_visibility(
     # Validate fields
     field_validation = validate_required_fields(spv_deals)
     waterfall_validation = validate_waterfall_inputs(spv_deals)
-    
-    # Combine blocking reasons
-    all_blocking_reasons = (
-        field_validation.get("blockingReasons", []) + 
-        waterfall_validation.get("waterfallBlockingReasons", [])
-    )
-    
-    # Determine safe to display
-    safe_to_display = (
-        field_validation["fieldsComplete"] and 
-        not field_validation["hasBlockingIssues"]
-    )
-    
-    # Determine resolved visibility
     has_capital_stack = spv_data.get("totalCapital", 0) > 0
-    resolved_visibility = determine_visibility_state(
-        exists=True,
-        fields_complete=field_validation["fieldsComplete"],
-        has_blocking_issues=field_validation["hasBlockingIssues"],
-        disclosure_level=disclosure_level,
-        has_capital_stack=has_capital_stack
-    )
     
-    # Compute waterfall visibility
-    waterfall_visible = compute_waterfall_visibility(
-        waterfall_available=waterfall_validation["waterfallAvailable"],
-        disclosure_level=resolved_visibility,
-        fields_complete=field_validation["fieldsComplete"],
-        safe_to_display=safe_to_display,
+    # Unified visibility resolution with invariant enforcement
+    vis = resolve_spv_visibility_state(
+        exists=True,
+        field_validation=field_validation,
+        waterfall_validation=waterfall_validation,
+        disclosure_level=disclosure_level,
+        has_capital_stack=has_capital_stack,
         waterfall_permitted=waterfall_permitted
     )
     
     return {
         "success": True,
         "spvId": spv_id,
-        "resolvedVisibility": resolved_visibility,
+        "resolvedVisibility": vis["resolvedVisibility"],
         "disclosureLevelSet": disclosure_level,
-        "waterfallAvailable": waterfall_validation["waterfallAvailable"],
-        "waterfallVisible": waterfall_visible,
+        "waterfallAvailable": vis["waterfallAvailable"],
+        "waterfallVisible": vis["waterfallVisible"],
         "waterfallPermitted": waterfall_permitted,
-        "safeToDisplay": safe_to_display,
+        "safeToDisplay": vis["safeToDisplay"],
         "fieldsComplete": field_validation["fieldsComplete"],
         "missingFields": field_validation.get("missingFields", []),
-        "blockingReasons": all_blocking_reasons[:5],
+        "blockingReasons": vis["blockingReasons"],
+        "nextSafeAction": vis["nextSafeAction"],
         "timestamp": timestamp
     }
 
@@ -1149,32 +1181,20 @@ async def get_all_spv_visibility():
         
         field_validation = validate_required_fields(spv_deals)
         waterfall_validation = validate_waterfall_inputs(spv_deals)
-        
         has_capital_stack = spv_data.get("totalCapital", 0) > 0
-        safe_to_display = (
-            field_validation["fieldsComplete"] and 
-            not field_validation["hasBlockingIssues"]
-        )
         
-        visibility_state = determine_visibility_state(
+        vis = resolve_spv_visibility_state(
             exists=True,
-            fields_complete=field_validation["fieldsComplete"],
-            has_blocking_issues=field_validation["hasBlockingIssues"],
+            field_validation=field_validation,
+            waterfall_validation=waterfall_validation,
             disclosure_level=disclosure_level,
-            has_capital_stack=has_capital_stack
-        )
-        
-        waterfall_visible = compute_waterfall_visibility(
-            waterfall_available=waterfall_validation["waterfallAvailable"],
-            disclosure_level=visibility_state,
-            fields_complete=field_validation["fieldsComplete"],
-            safe_to_display=safe_to_display,
+            has_capital_stack=has_capital_stack,
             waterfall_permitted=waterfall_permitted
         )
         
         visibility_map[spv_id] = {
-            "visibilityState": visibility_state,
-            "waterfallVisible": waterfall_visible,
+            "visibilityState": vis["resolvedVisibility"],
+            "waterfallVisible": vis["waterfallVisible"],
             "disclosureLevel": disclosure_level
         }
     

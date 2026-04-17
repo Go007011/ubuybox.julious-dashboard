@@ -44,6 +44,16 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Frontend Visibility Map: GET /api/spv-visibility
 
 ### Phase 4: Frontend Visibility Enforcement (Complete — Tested 2026-04-16)
+
+### Phase 5: Visibility Logic Invariant Fix (Complete — 2026-04-17)
+- Replaced two separate functions (`determine_visibility_state` + `compute_waterfall_visibility`) with single unified `resolve_spv_visibility_state` that enforces invariants
+- Added `nextSafeAction` field to all orchestration responses
+- Enforced: if resolvedVisibility=full then safeToDisplay must be true
+- Enforced: if safeToDisplay=false then resolvedVisibility cannot be full (downgrades to preview/teaser)
+- Enforced: if missingFields=[] and blockingReasons=[] and SPV exists, safeToDisplay must be true
+- Enforced: if waterfallVisible=true, SPV cannot be blocked
+- blockingReasons now merges both field and waterfall sources before computing safeToDisplay
+- Root cause: safeToDisplay and resolvedVisibility were computed from different inputs independently with no post-computation invariant check
 - DealCard accepts visibility prop, masks fields per disclosure level
 - Dashboard, CapitalStack, SPVRegistry, DealDetail, Waterfalls all enforce masking
 - blocked: shows SPV ID and blocked message only
