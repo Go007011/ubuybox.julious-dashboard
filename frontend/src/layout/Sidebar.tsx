@@ -41,11 +41,16 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       >
         {/* Logo */}
         <div className="p-6 border-b border-slate-800">
-          <Link to="/" className="flex items-center" data-testid="logo-link" onClick={onClose}>
+          <Link to="/" className="flex items-center gap-3" data-testid="logo-link" onClick={onClose}>
+            <img 
+              src="/logo.png" 
+              alt="UBUYBOX" 
+              className="w-10 h-10 rounded-xl object-contain"
+            />
             <img 
               src={ubuyboxLogo}
               alt="UBUYBOX" 
-              className="h-8 object-contain"
+              className="h-6 object-contain"
             />
           </Link>
         </div>
