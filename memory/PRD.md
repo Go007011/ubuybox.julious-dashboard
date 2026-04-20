@@ -62,6 +62,17 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - full: shows all permitted fields — waterfall gated separately
 - Waterfalls page: shows data only when waterfallVisible=true per SPV
 
+### Phase 6: User-Scoped Dashboard via Licensed Users (Complete — 2026-04-20)
+- New Google Sheet: 1EmXsM7W_ny28d4YRh8M3U7mOLO9uC5tjQKJF11Z7AeA
+- Access-control tab (gid=1056764769): email → assigned_spv_id lookup
+- New backend endpoints: /api/user/resolve, /api/user/dashboard, /api/user/deals, /api/user/spvs
+- Frontend reads Bolt session email (via URL ?email= param or localStorage)
+- Dashboard, Capital Stack, SPV Registry, Waterfalls all scoped to user's assigned SPV only
+- Sidebar shows user profile (ownerName, SPV, license level) when authenticated
+- Shows "Not authenticated" with email login when no session
+- No mock data — all live from Google Sheets
+- Bolt handles auth/login, Emergent reads sheets and serves scoped data, OpenClaw is messaging only
+
 ## Backlog
 
 ### P1: Persistent Orchestration State

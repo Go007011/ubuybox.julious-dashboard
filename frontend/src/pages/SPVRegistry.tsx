@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { fetchSPVs, fetchSPVVisibility, formatCurrency, getVisibility, type SPV, type VisibilityMap } from '../api/deals';
+import { fetchUserSPVs, fetchSPVVisibility, formatCurrency, getVisibility, type SPV, type VisibilityMap } from '../api/deals';
+import { isAuthenticated } from '../api/auth';
 
 export default function SPVRegistry() {
   const [spvs, setSPVs] = useState<SPV[]>([]);
@@ -12,21 +13,26 @@ export default function SPVRegistry() {
       try {
         setLoading(true);
         const [data, vis] = await Promise.all([
-          fetchSPVs(),
+          fetchUserSPVs(),
           fetchSPVVisibility()
         ]);
         setSPVs(data);
         setVisibilityMap(vis);
         setError(null);
-      } catch (err) {
-        setError('Failed to load SPVs');
+      } catch (err: any) {
+        setError(err?.message || 'Failed to load SPVs');
         console.error(err);
       } finally {
         setLoading(false);
       }
     };
 
-    loadSPVs();
+    if (isAuthenticated()) {
+      loadSPVs();
+    } else {
+      setError('Not authenticated. Please log in via Bolt.');
+      setLoading(false);
+    }
   }, []);
 
   if (loading) {

@@ -1,6 +1,8 @@
 // API service for fetching data from the backend
 const API_BASE = '/api';
 
+import { getAuthEmail } from './auth';
+
 export interface Deal {
   id: string;
   deal: string;
@@ -46,6 +48,69 @@ export interface SPV {
   totalCapital: number;
   dealCount: number;
   status: string;
+}
+
+export interface UserInfo {
+  email: string;
+  ownerName: string;
+  licenseLevel: string;
+  assignedSpvId: string;
+}
+
+export interface UserDashboardData extends DashboardData {
+  user: UserInfo;
+}
+
+// Resolve authenticated user from Bolt session email
+export async function resolveUser(): Promise<UserInfo | null> {
+  const email = getAuthEmail();
+  if (!email) return null;
+  
+  const response = await fetch(`${API_BASE}/user/resolve?email=${encodeURIComponent(email)}`);
+  if (!response.ok) return null;
+  const data = await response.json();
+  return {
+    email: data.email,
+    ownerName: data.ownerName,
+    licenseLevel: data.licenseLevel,
+    assignedSpvId: data.assignedSpvId,
+  };
+}
+
+// Fetch dashboard scoped to authenticated user's SPV
+export async function fetchUserDashboard(): Promise<UserDashboardData> {
+  const email = getAuthEmail();
+  if (!email) throw new Error('Not authenticated');
+  
+  const response = await fetch(`${API_BASE}/user/dashboard?email=${encodeURIComponent(email)}`);
+  if (!response.ok) {
+    if (response.status === 403) throw new Error('Access denied — user not licensed');
+    if (response.status === 404) throw new Error('User not found');
+    throw new Error('Failed to fetch dashboard data');
+  }
+  return response.json();
+}
+
+// Fetch deals scoped to authenticated user's SPV
+export async function fetchUserDeals(): Promise<Deal[]> {
+  const email = getAuthEmail();
+  if (!email) throw new Error('Not authenticated');
+  
+  const response = await fetch(`${API_BASE}/user/deals?email=${encodeURIComponent(email)}`);
+  if (!response.ok) throw new Error('Failed to fetch deals');
+  const data = await response.json();
+  return data.deals;
+}
+
+// Fetch SPVs scoped to authenticated user
+export async function fetchUserSPVs(): Promise<SPV[]> {
+  const email = getAuthEmail();
+  if (!email) throw new Error('Not authenticated');
+  
+  const response = await fetch(`${API_BASE}/user/spvs?email=${encodeURIComponent(email)}`);
+  if (!response.ok) throw new Error('Failed to fetch SPVs');
+  const data = await response.json();
+  return data.spvs;
 }
 
 // Fetch all deals

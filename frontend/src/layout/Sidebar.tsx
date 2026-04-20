@@ -1,5 +1,8 @@
 import { Link, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import ubuyboxLogo from '../assets/ubuybox-logo.png';
+import { resolveUser, type UserInfo } from '../api/deals';
+import { getAuthEmail, setAuthEmail, isAuthenticated } from '../api/auth';
 
 const menuItems = [
   { name: 'Dashboard', path: '/', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -19,6 +22,34 @@ interface SidebarProps {
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const location = useLocation();
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  useEffect(() => {
+    const loadUser = async () => {
+      if (isAuthenticated()) {
+        const info = await resolveUser();
+        setUserInfo(info);
+      }
+    };
+    loadUser();
+  }, []);
+
+  const handleLogin = async () => {
+    if (!loginEmail.trim()) return;
+    setLoginError('');
+    setAuthEmail(loginEmail.trim());
+    const info = await resolveUser();
+    if (info) {
+      setUserInfo(info);
+      setLoginEmail('');
+      window.location.reload();
+    } else {
+      setLoginError('Email not found or inactive');
+      localStorage.removeItem('ubuybox_user_email');
+    }
+  };
 
   return (
     <>
@@ -90,15 +121,38 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
         {/* User Profile */}
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-800 bg-slate-950">
-          <div className="flex items-center gap-3 px-3 py-2">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
-              <span className="text-white text-sm font-semibold">JD</span>
+          {userInfo ? (
+            <div className="flex items-center gap-3 px-3 py-2">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
+                <span className="text-white text-sm font-semibold">{userInfo.ownerName.slice(0, 2).toUpperCase()}</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white truncate">{userInfo.ownerName}</p>
+                <p className="text-xs text-slate-500">{userInfo.assignedSpvId} • {userInfo.licenseLevel}</p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">John Doe</p>
-              <p className="text-xs text-slate-500">Admin</p>
+          ) : (
+            <div className="px-3 py-2 space-y-2">
+              <p className="text-xs text-slate-500">Sign in with Bolt email</p>
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                placeholder="email@example.com"
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-orange-500"
+                data-testid="login-email-input"
+              />
+              {loginError && <p className="text-xs text-red-400">{loginError}</p>}
+              <button
+                onClick={handleLogin}
+                className="w-full px-3 py-2 bg-orange-500 text-white text-sm font-semibold rounded-lg hover:bg-orange-600 transition-base"
+                data-testid="login-submit-button"
+              >
+                Sign In
+              </button>
             </div>
-          </div>
+          )}
         </div>
       </aside>
     </>

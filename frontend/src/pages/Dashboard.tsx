@@ -4,7 +4,8 @@ import StatCard from '../components/StatCard';
 import DealCard from '../components/DealCard';
 import ActivityFeed from '../components/ActivityFeed';
 import QuickActions from '../components/QuickActions';
-import { fetchDashboard, fetchSPVVisibility, formatCurrency, getVisibility, type Deal, type DashboardData, type VisibilityMap } from '../api/deals';
+import { fetchUserDashboard, fetchSPVVisibility, formatCurrency, getVisibility, type Deal, type UserDashboardData, type VisibilityMap, type UserInfo } from '../api/deals';
+import { isAuthenticated, getAuthEmail } from '../api/auth';
 
 // Icon components for stat cards
 const BuildingIcon = () => (
@@ -42,8 +43,9 @@ const generateActivities = (deals: Deal[]) => {
 };
 
 export default function Dashboard() {
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [dashboardData, setDashboardData] = useState<UserDashboardData | null>(null);
   const [visibilityMap, setVisibilityMap] = useState<VisibilityMap>({});
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,21 +54,27 @@ export default function Dashboard() {
       try {
         setLoading(true);
         const [data, vis] = await Promise.all([
-          fetchDashboard(),
+          fetchUserDashboard(),
           fetchSPVVisibility()
         ]);
         setDashboardData(data);
+        setUserInfo(data.user || null);
         setVisibilityMap(vis);
         setError(null);
-      } catch (err) {
-        setError('Failed to load dashboard data');
+      } catch (err: any) {
+        setError(err?.message || 'Failed to load dashboard data');
         console.error(err);
       } finally {
         setLoading(false);
       }
     };
 
-    loadDashboard();
+    if (isAuthenticated()) {
+      loadDashboard();
+    } else {
+      setError('Not authenticated. Please log in via Bolt.');
+      setLoading(false);
+    }
   }, []);
 
   if (loading) {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import DealCard from '../components/DealCard';
-import { fetchDeals, fetchSPVVisibility, formatCurrency, getVisibility, type Deal, type VisibilityMap } from '../api/deals';
+import { fetchUserDeals, fetchSPVVisibility, formatCurrency, getVisibility, type Deal, type VisibilityMap } from '../api/deals';
+import { isAuthenticated } from '../api/auth';
 
 export default function CapitalStack() {
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -13,21 +14,26 @@ export default function CapitalStack() {
       try {
         setLoading(true);
         const [data, vis] = await Promise.all([
-          fetchDeals(),
+          fetchUserDeals(),
           fetchSPVVisibility()
         ]);
         setDeals(data);
         setVisibilityMap(vis);
         setError(null);
-      } catch (err) {
-        setError('Failed to load deals');
+      } catch (err: any) {
+        setError(err?.message || 'Failed to load deals');
         console.error(err);
       } finally {
         setLoading(false);
       }
     };
 
-    loadDeals();
+    if (isAuthenticated()) {
+      loadDeals();
+    } else {
+      setError('Not authenticated. Please log in via Bolt.');
+      setLoading(false);
+    }
   }, []);
 
   if (loading) {

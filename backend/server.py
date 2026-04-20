@@ -50,9 +50,10 @@ app.add_middleware(
 
 # ============= CONFIGURATION =============
 
-# Google Sheet configuration (source of truth - unchanged)
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1N8-PD3654Qcd65r9Etc2Z1ayZbHB0X5m__URQYFYVeY")
+# Google Sheet configuration (source of truth)
+SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1EmXsM7W_ny28d4YRh8M3U7mOLO9uC5tjQKJF11Z7AeA")
 SHEET_NAME = "Sheet1"
+ACCESS_CONTROL_GID = "1056764769"
 
 # Orchestration API Token
 ORCHESTRATION_API_TOKEN = os.environ.get(
@@ -201,6 +202,56 @@ async def verify_orchestration_token(authorization: str = Header(None)) -> bool:
 def get_csv_url(spreadsheet_id: str, sheet_name: str = "Sheet1") -> str:
     """Generate CSV export URL for a public Google Sheet"""
     return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
+
+
+def get_csv_url_by_gid(spreadsheet_id: str, gid: str) -> str:
+    """Generate CSV export URL for a public Google Sheet tab by gid"""
+    return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq?tqx=out:csv&gid={gid}"
+
+
+async def fetch_access_control() -> list[dict]:
+    """
+    Fetch Licensed Users access-control tab from Google Sheets.
+    Columns: license_id, email, owner_name, license_level, status, assigned_spv_id, access_type, source
+    """
+    url = get_csv_url_by_gid(SPREADSHEET_ID, ACCESS_CONTROL_GID)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.get(url)
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to fetch access-control tab: {type(e).__name__}")
+            raise HTTPException(status_code=502, detail="Failed to fetch access-control data")
+    
+    reader = csv.DictReader(io.StringIO(response.text))
+    users = []
+    for row in reader:
+        email = row.get("email", "").strip().lower()
+        if not email:
+            continue
+        users.append({
+            "license_id": row.get("license_id", "").strip(),
+            "email": email,
+            "owner_name": row.get("owner_name", "").strip(),
+            "license_level": row.get("license_level", "").strip(),
+            "status": row.get("status", "").strip(),
+            "assigned_spv_id": row.get("assigned_spv_id", "").strip(),
+            "access_type": row.get("access_type", "").strip(),
+            "source": row.get("source", "").strip(),
+        })
+    return users
+
+
+def resolve_user_access(users: list[dict], email: str) -> Optional[dict]:
+    """
+    Look up a user by email in the access-control list.
+    Returns the user record if found and Active, else None.
+    """
+    email_lower = email.strip().lower()
+    for user in users:
+        if user["email"] == email_lower:
+            return user
+    return None
 
 
 def parse_number(value) -> float:
@@ -835,6 +886,181 @@ async def get_dashboard():
         "statusCounts": status_counts,
         "recentDeals": clean_deals
     }
+
+
+# ============= USER-SCOPED ENDPOINTS (Bolt auth context) =============
+
+@app.get("/api/user/resolve")
+async def resolve_user(email: str):
+    """
+    Resolve an authenticated user email to their assigned SPV.
+    Called by the frontend with the Bolt session email.
+    Returns: user record, assigned SPV, and license level.
+    """
+    if not email or not email.strip():
+        raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "Email parameter is required"})
+    
+    users = await fetch_access_control()
+    user = resolve_user_access(users, email)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail={
+            "error": "user_not_found",
+            "message": f"No licensed user found for email: {email}"
+        })
+    
+    if user["status"] != "Active":
+        raise HTTPException(status_code=403, detail={
+            "error": "user_inactive",
+            "message": f"User account is not active (status: {user['status']})"
+        })
+    
+    if not user["assigned_spv_id"]:
+        raise HTTPException(status_code=403, detail={
+            "error": "no_spv_assigned",
+            "message": "No SPV assigned to this user"
+        })
+    
+    return {
+        "success": True,
+        "email": user["email"],
+        "ownerName": user["owner_name"],
+        "licenseLevel": user["license_level"],
+        "assignedSpvId": user["assigned_spv_id"],
+        "accessType": user["access_type"],
+        "status": user["status"]
+    }
+
+
+@app.get("/api/user/dashboard")
+async def get_user_dashboard(email: str):
+    """
+    Get dashboard data scoped to the authenticated user's assigned SPV.
+    Replaces the global /api/dashboard for authenticated users.
+    """
+    if not email or not email.strip():
+        raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "Email parameter is required"})
+    
+    # Resolve user access
+    users = await fetch_access_control()
+    user = resolve_user_access(users, email)
+    
+    if not user or user["status"] != "Active" or not user["assigned_spv_id"]:
+        raise HTTPException(status_code=403, detail={
+            "error": "access_denied",
+            "message": "User not found, inactive, or no SPV assigned"
+        })
+    
+    spv_id = user["assigned_spv_id"]
+    
+    # Fetch all deals then filter to user's SPV
+    all_deals = await fetch_sheet_data()
+    spv_deals = [d for d in all_deals if d["spv"] == spv_id]
+    
+    if not spv_deals:
+        return {
+            "user": {
+                "email": user["email"],
+                "ownerName": user["owner_name"],
+                "licenseLevel": user["license_level"],
+                "assignedSpvId": spv_id
+            },
+            "totalDeals": 0,
+            "activeSPVs": 0,
+            "totalCapital": 0,
+            "avgMonthlyPayment": 0,
+            "statusCounts": {"Active": 0, "Pending": 0, "Locked": 0},
+            "recentDeals": []
+        }
+    
+    total_deals = len(spv_deals)
+    total_capital = sum(d["totalCapital"] for d in spv_deals)
+    total_payment = sum(d["payment"] for d in spv_deals)
+    avg_payment = total_payment / total_deals if total_deals > 0 else 0
+    
+    status_counts = {"Active": 0, "Pending": 0, "Locked": 0}
+    for deal in spv_deals:
+        status = deal["status"]
+        if status in status_counts:
+            status_counts[status] += 1
+    
+    clean_deals = [{k: v for k, v in d.items() if k != "_raw"} for d in spv_deals]
+    
+    return {
+        "user": {
+            "email": user["email"],
+            "ownerName": user["owner_name"],
+            "licenseLevel": user["license_level"],
+            "assignedSpvId": spv_id
+        },
+        "totalDeals": total_deals,
+        "activeSPVs": 1,
+        "totalCapital": total_capital,
+        "avgMonthlyPayment": round(avg_payment, 2),
+        "statusCounts": status_counts,
+        "recentDeals": clean_deals
+    }
+
+
+@app.get("/api/user/deals")
+async def get_user_deals(email: str):
+    """
+    Get deals scoped to the authenticated user's assigned SPV.
+    """
+    if not email or not email.strip():
+        raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "Email parameter is required"})
+    
+    users = await fetch_access_control()
+    user = resolve_user_access(users, email)
+    
+    if not user or user["status"] != "Active" or not user["assigned_spv_id"]:
+        raise HTTPException(status_code=403, detail={
+            "error": "access_denied",
+            "message": "User not found, inactive, or no SPV assigned"
+        })
+    
+    spv_id = user["assigned_spv_id"]
+    all_deals = await fetch_sheet_data()
+    spv_deals = [d for d in all_deals if d["spv"] == spv_id]
+    clean_deals = [{k: v for k, v in d.items() if k != "_raw"} for d in spv_deals]
+    
+    return {"deals": clean_deals, "count": len(clean_deals), "spvId": spv_id}
+
+
+@app.get("/api/user/spvs")
+async def get_user_spvs(email: str):
+    """
+    Get SPV data scoped to the authenticated user's assigned SPV.
+    """
+    if not email or not email.strip():
+        raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "Email parameter is required"})
+    
+    users = await fetch_access_control()
+    user = resolve_user_access(users, email)
+    
+    if not user or user["status"] != "Active" or not user["assigned_spv_id"]:
+        raise HTTPException(status_code=403, detail={
+            "error": "access_denied",
+            "message": "User not found, inactive, or no SPV assigned"
+        })
+    
+    spv_id = user["assigned_spv_id"]
+    all_deals = await fetch_sheet_data()
+    spv_deals = [d for d in all_deals if d["spv"] == spv_id]
+    
+    if not spv_deals:
+        return {"spvs": [], "count": 0}
+    
+    spv_data = {
+        "id": spv_id,
+        "name": spv_id,
+        "deals": [d["deal"] for d in spv_deals],
+        "totalCapital": sum(d["totalCapital"] for d in spv_deals),
+        "dealCount": len(spv_deals),
+        "status": "Active"
+    }
+    
+    return {"spvs": [spv_data], "count": 1}
 
 
 # ============= ORCHESTRATION ENDPOINTS =============

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { fetchDeals, fetchSPVVisibility, formatCurrency, getVisibility, type Deal, type VisibilityMap } from '../api/deals';
+import { fetchUserDeals, fetchSPVVisibility, formatCurrency, getVisibility, type Deal, type VisibilityMap } from '../api/deals';
+import { isAuthenticated } from '../api/auth';
 
 export default function Waterfalls() {
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -12,20 +13,25 @@ export default function Waterfalls() {
       try {
         setLoading(true);
         const [dealsData, vis] = await Promise.all([
-          fetchDeals(),
+          fetchUserDeals(),
           fetchSPVVisibility()
         ]);
         setDeals(dealsData);
         setVisibilityMap(vis);
         setError(null);
-      } catch (err) {
-        setError('Failed to load waterfall data');
+      } catch (err: any) {
+        setError(err?.message || 'Failed to load waterfall data');
         console.error(err);
       } finally {
         setLoading(false);
       }
     };
-    loadData();
+    if (isAuthenticated()) {
+      loadData();
+    } else {
+      setError('Not authenticated. Please log in via Bolt.');
+      setLoading(false);
+    }
   }, []);
 
   if (loading) {
