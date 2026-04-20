@@ -92,6 +92,16 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Cap enforcement: LEVEL_1 max 1 active request (no participation), LEVEL_2 max 3, LEVEL_3 max 10
 - All pages updated: Dashboard, Capital Stack, SPV Registry, Waterfalls, HoldCo Summary, Documents
 
+### Phase 9: Opportunity Release Control (Complete — 2026-04-20)
+- New sheet tab: Opportunity Release Control (spv_id, deal_id, release_status, release_to_level, visibility_mode, approval_required, capacity_status, max_orders_allowed, current_orders_count, opportunity_access_state)
+- Dashboard now shows two sections: Personal Context (user's assigned SPV) + Active Opportunities (released private opportunities)
+- Release filtering: only Active rows shown; L1 sees L1 releases, L2 sees L1+L2, L3 sees L1+L2+L3
+- Visibility mode controls masking per opportunity: teaser/preview/full (independent of user level)
+- CTA states: Available, Approval Required, Restricted, Full — based on approval_required, capacity_status, max_orders, current_orders, access_state
+- Capacity bars on each opportunity card
+- Hard masking enforced on all opportunity cards (no addresses, seller, agent info)
+- Dashboard is no longer a broad marketplace — only intentionally released private opportunities shown
+
 ## Backlog
 
 ### P1: Persistent Orchestration State

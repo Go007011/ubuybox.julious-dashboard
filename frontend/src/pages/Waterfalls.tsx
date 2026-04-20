@@ -17,8 +17,8 @@ export default function Waterfalls() {
 
   const vis = licenseToVisibility(data.user.licenseLevel);
   const allowed = licenseAllowsWaterfall(data.user.licenseLevel);
-  const wf = data.waterfall;
-  const summary = data.dealSummary[0] || {};
+  const wf = data.personalContext.waterfall;
+  const summary = data.personalContext.dealSummary[0] || {};
 
   if (!allowed) {
     return (

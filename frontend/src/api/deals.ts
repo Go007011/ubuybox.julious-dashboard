@@ -65,16 +65,37 @@ export interface CapsInfo {
   capReached: boolean;
 }
 
+export interface ReleasedOpportunity {
+  spvId: string;
+  dealId: string;
+  releaseToLevel: string;
+  visibilityMode: string;
+  approvalRequired: boolean;
+  capacityStatus: string;
+  maxOrders: number;
+  currentOrders: number;
+  accessState: string;
+  ctaState: string;
+  notes: string;
+  deal: Record<string, string>;
+  capitalStack: Record<string, string>;
+  dealSummary: Record<string, string>;
+  validation: Record<string, string>;
+}
+
 export interface FullDashboardData {
   user: UserInfo;
-  stats: { totalDeals: number; activeSPVs: number; totalUnits: number; unitsSold: number };
-  mainMaps: Record<string, string>[];
-  spvRegistry: Record<string, string>[];
-  capitalStack: Record<string, string>[];
-  waterfall: Record<string, string>[];
-  dealSummary: Record<string, string>[];
-  validation: Record<string, string>[];
-  orders: Record<string, string>[];
+  personalContext: {
+    stats: { totalDeals: number; activeSPVs: number; totalUnits: number; unitsSold: number };
+    mainMaps: Record<string, string>[];
+    spvRegistry: Record<string, string>[];
+    capitalStack: Record<string, string>[];
+    waterfall: Record<string, string>[];
+    dealSummary: Record<string, string>[];
+    validation: Record<string, string>[];
+    orders: Record<string, string>[];
+  };
+  opportunities: ReleasedOpportunity[];
   caps: CapsInfo;
 }
 

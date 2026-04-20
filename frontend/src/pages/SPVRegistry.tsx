@@ -17,8 +17,8 @@ export default function SPVRegistry() {
 
   const vis = licenseToVisibility(data.user.licenseLevel);
   const showFinancials = vis === 'preview' || vis === 'full';
-  const spvs = data.spvRegistry;
-  const valid = data.validation[0] || {};
+  const spvs = data.personalContext.spvRegistry;
+  const valid = data.personalContext.validation[0] || {};
 
   return (
     <div className="space-y-6" data-testid="spv-registry-page">
@@ -29,7 +29,7 @@ export default function SPVRegistry() {
         </div>
         <div className="glass-card p-5">
           <p className="text-sm text-slate-400">Deals</p>
-          <p className="text-2xl font-bold text-emerald-400 mt-1">{data.stats.totalDeals}</p>
+          <p className="text-2xl font-bold text-emerald-400 mt-1">{data.personalContext.stats.totalDeals}</p>
         </div>
         <div className="glass-card p-5">
           <p className="text-sm text-slate-400">Validation</p>
@@ -78,10 +78,10 @@ export default function SPVRegistry() {
       </div>
 
       {/* Validation Details */}
-      {data.validation.length > 0 && (
+      {data.personalContext.validation.length > 0 && (
         <div className="glass-card p-6">
           <h2 className="text-lg font-semibold text-white mb-4">Validation Engine</h2>
-          {data.validation.map((v, i) => (
+          {data.personalContext.validation.map((v, i) => (
             <div key={i} className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <div className="p-3 bg-slate-800/50 rounded-xl">
                 <p className="text-xs text-slate-500">Overall</p>

@@ -18,7 +18,7 @@ export default function CapitalStack() {
   const vis = licenseToVisibility(data.user.licenseLevel);
   const showFinancials = vis === 'preview' || vis === 'full';
   const showReturns = vis === 'full';
-  const stack = data.capitalStack;
+  const stack = data.personalContext.capitalStack;
 
   return (
     <div className="space-y-6" data-testid="capital-stack-page">

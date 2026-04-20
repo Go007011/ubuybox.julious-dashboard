@@ -62,6 +62,10 @@ SHEET_WATERFALL = "Waterfall Engine"
 SHEET_DEAL_SUMMARY = "Deal Summary (UBuyBox View)"
 SHEET_VALIDATION = "Validation Engine"
 SHEET_ORDERS = "Orders"
+SHEET_OPP_RELEASE = "Opportunity Release Control"
+
+# Level hierarchy for release filtering
+LEVEL_HIERARCHY = {"LEVEL_1": 1, "LEVEL_2": 2, "LEVEL_3": 3}
 
 # Hard-masked fields — NEVER shown to any partner-facing user
 HARD_MASKED_FIELDS = {
@@ -1114,55 +1118,130 @@ async def resolve_user_endpoint(email: str):
 
 @app.get("/api/user/dashboard")
 async def get_user_dashboard(email: str):
-    """Full multi-sheet dashboard scoped to user's SPV, masked by license level."""
+    """Full multi-sheet dashboard: personal SPV context + released private opportunities."""
     user = await _resolve_and_validate(email)
     spv_id = user["assigned_spv_id"]
     level = user["license_level"]
+    user_level_num = LEVEL_HIERARCHY.get(level, 1)
 
-    # Fetch all tabs in parallel-ish (sequential but fast)
-    main_maps_raw = filter_by_spv(await fetch_sheet_tab(SHEET_MAIN_MAPS), spv_id)
-    spv_reg_raw = filter_by_spv(await fetch_sheet_tab(SHEET_SPV_REGISTRY), spv_id)
-    cap_stack_raw = filter_by_spv(await fetch_sheet_tab(SHEET_CAPITAL_STACK), spv_id)
-    waterfall_raw = filter_by_spv(await fetch_sheet_tab(SHEET_WATERFALL), spv_id)
-    deal_sum_raw = filter_by_spv(await fetch_sheet_tab(SHEET_DEAL_SUMMARY), spv_id)
-    validation_raw = filter_by_spv(await fetch_sheet_tab(SHEET_VALIDATION), spv_id)
-    orders_raw = filter_by_spv(await fetch_sheet_tab(SHEET_ORDERS), spv_id)
+    # Fetch tabs
+    main_maps_all = await fetch_sheet_tab(SHEET_MAIN_MAPS)
+    spv_reg_all = await fetch_sheet_tab(SHEET_SPV_REGISTRY)
+    cap_stack_all = await fetch_sheet_tab(SHEET_CAPITAL_STACK)
+    waterfall_all = await fetch_sheet_tab(SHEET_WATERFALL)
+    deal_sum_all = await fetch_sheet_tab(SHEET_DEAL_SUMMARY)
+    validation_all = await fetch_sheet_tab(SHEET_VALIDATION)
+    orders_all = await fetch_sheet_tab(SHEET_ORDERS)
+    opp_release_all = await fetch_sheet_tab(SHEET_OPP_RELEASE)
 
-    # Apply masking per level
+    # --- Personal SPV context (assigned_spv_id) ---
+    personal_main = filter_by_spv(main_maps_all, spv_id)
+    personal_reg = filter_by_spv(spv_reg_all, spv_id)
+    personal_cap = filter_by_spv(cap_stack_all, spv_id)
+    personal_wf = filter_by_spv(waterfall_all, spv_id)
+    personal_ds = filter_by_spv(deal_sum_all, spv_id)
+    personal_val = filter_by_spv(validation_all, spv_id)
+    personal_orders = filter_by_spv(orders_all, spv_id)
+
+    # Mask personal context by license level
     if level == "LEVEL_3":
-        main_maps = [mask_main_maps_l3(r) for r in main_maps_raw]
-        spv_registry = [mask_spv_registry_l2(r) for r in spv_reg_raw]
-        capital_stack = [mask_capital_stack_l3(r) for r in cap_stack_raw]
-        waterfall = [{"Deal_ID": r.get("Deal_ID",""), "SPV_ID": r.get("SPV_ID",""), "Step_Order": r.get("Step_Order",""), "Tranche": r.get("Tranche",""), "Description": r.get("Description","")} for r in waterfall_raw]
-        deal_summary = [mask_deal_summary_l3(r) for r in deal_sum_raw]
-        validation = [mask_validation_l2(r) for r in validation_raw]
-        # L3 can see order records for their SPV
-        orders = [{"Order_ID": r.get("Order_ID",""), "SPV_ID": r.get("SPV_ID",""), "Units_Bought": r.get("Units_Bought",""), "Unit_Size": r.get("Unit_Size",""), "Total_Investment": r.get("Total_Investment",""), "Ownership_Percent": r.get("Ownership_Percent",""), "Payment_Status": r.get("Payment_Status",""), "Buyer_Level": r.get("Buyer_Level","")} for r in orders_raw]
+        p_main = [mask_main_maps_l3(r) for r in personal_main]
+        p_reg = [mask_spv_registry_l2(r) for r in personal_reg]
+        p_cap = [mask_capital_stack_l3(r) for r in personal_cap]
+        p_wf = [{"Deal_ID": r.get("Deal_ID",""), "SPV_ID": r.get("SPV_ID",""), "Step_Order": r.get("Step_Order",""), "Tranche": r.get("Tranche",""), "Description": r.get("Description","")} for r in personal_wf]
+        p_ds = [mask_deal_summary_l3(r) for r in personal_ds]
+        p_val = [mask_validation_l2(r) for r in personal_val]
+        p_orders = [{"Order_ID": r.get("Order_ID",""), "SPV_ID": r.get("SPV_ID",""), "Units_Bought": r.get("Units_Bought",""), "Unit_Size": r.get("Unit_Size",""), "Total_Investment": r.get("Total_Investment",""), "Ownership_Percent": r.get("Ownership_Percent",""), "Payment_Status": r.get("Payment_Status",""), "Buyer_Level": r.get("Buyer_Level","")} for r in personal_orders]
     elif level == "LEVEL_2":
-        main_maps = [mask_main_maps_l2(r) for r in main_maps_raw]
-        spv_registry = [mask_spv_registry_l2(r) for r in spv_reg_raw]
-        capital_stack = [mask_capital_stack_l2(r) for r in cap_stack_raw]
-        waterfall = [{"SPV_ID": spv_id, "summary": "Waterfall summary available at Level 3"}]
-        deal_summary = [mask_deal_summary_l2(r) for r in deal_sum_raw]
-        validation = [mask_validation_l2(r) for r in validation_raw]
-        orders = []
+        p_main = [mask_main_maps_l2(r) for r in personal_main]
+        p_reg = [mask_spv_registry_l2(r) for r in personal_reg]
+        p_cap = [mask_capital_stack_l2(r) for r in personal_cap]
+        p_wf = [{"SPV_ID": spv_id, "summary": "Waterfall summary available at Level 3"}]
+        p_ds = [mask_deal_summary_l2(r) for r in personal_ds]
+        p_val = [mask_validation_l2(r) for r in personal_val]
+        p_orders = []
     else:
-        main_maps = [mask_main_maps_l1(r) for r in main_maps_raw]
-        spv_registry = [mask_spv_registry_l1(r) for r in spv_reg_raw]
-        capital_stack = [mask_capital_stack_l1(r) for r in cap_stack_raw]
-        waterfall = []
-        deal_summary = [mask_deal_summary_l1(r) for r in deal_sum_raw]
-        validation = [mask_validation_l1(r) for r in validation_raw]
-        orders = []
+        p_main = [mask_main_maps_l1(r) for r in personal_main]
+        p_reg = [mask_spv_registry_l1(r) for r in personal_reg]
+        p_cap = [mask_capital_stack_l1(r) for r in personal_cap]
+        p_wf = []
+        p_ds = [mask_deal_summary_l1(r) for r in personal_ds]
+        p_val = [mask_validation_l1(r) for r in personal_val]
+        p_orders = []
 
-    # Compute dashboard stats from main maps
-    total_deals = len(main_maps)
-    total_units = sum(parse_number(r.get("TOTAL_UNITS", 0)) for r in main_maps_raw)
-    units_sold = sum(parse_number(r.get("UNITS_SOLD", 0)) for r in main_maps_raw)
+    # --- Active released opportunities (Opportunity Release Control) ---
+    released_opps = []
+    for opp in opp_release_all:
+        if opp.get("release_status", "").strip() != "Active":
+            continue
+        release_level = opp.get("release_to_level", "").strip()
+        release_num = LEVEL_HIERARCHY.get(release_level, 99)
+        if user_level_num < release_num:
+            continue
 
-    # Caps
-    user_orders = [r for r in orders_raw if r.get("Partner_Email", "").strip().lower() == user["email"]]
-    active_orders = [r for r in user_orders if r.get("Payment_Status", "").strip() in ("Pending", "Active", "Completed")]
+        opp_spv = opp.get("spv_id", "").strip()
+        opp_deal = opp.get("deal_id", "").strip()
+        vis_mode = opp.get("visibility_mode", "teaser").strip()
+
+        # Get deal data for this opportunity from Main Maps
+        deal_rows = [r for r in main_maps_all if r.get("SPV_ID", "").strip() == opp_spv and r.get("Deal_ID", "").strip() == opp_deal]
+        deal_summary_rows = [r for r in deal_sum_all if r.get("SPV_ID", "").strip() == opp_spv]
+        cap_rows = [r for r in cap_stack_all if r.get("SPV_ID", "").strip() == opp_spv]
+        val_rows = [r for r in validation_all if r.get("SPV_ID", "").strip() == opp_spv]
+
+        # Apply masking based on visibility_mode (not user level — the release controls it)
+        deal_data = deal_rows[0] if deal_rows else {}
+        if vis_mode == "full":
+            masked_deal = mask_main_maps_l3(deal_data) if deal_data else {}
+            masked_cap = [mask_capital_stack_l3(r) for r in cap_rows]
+            masked_ds = [mask_deal_summary_l3(r) for r in deal_summary_rows]
+        elif vis_mode == "preview":
+            masked_deal = mask_main_maps_l2(deal_data) if deal_data else {}
+            masked_cap = [mask_capital_stack_l2(r) for r in cap_rows]
+            masked_ds = [mask_deal_summary_l2(r) for r in deal_summary_rows]
+        else:
+            masked_deal = mask_main_maps_l1(deal_data) if deal_data else {}
+            masked_cap = [mask_capital_stack_l1(r) for r in cap_rows]
+            masked_ds = [mask_deal_summary_l1(r) for r in deal_summary_rows]
+
+        max_orders = int(opp.get("max_orders_allowed", "0") or "0")
+        cur_orders = int(opp.get("current_orders_count", "0") or "0")
+        access_state = opp.get("opportunity_access_state", "").strip()
+        cap_status = opp.get("capacity_status", "").strip()
+
+        # Determine CTA state
+        if access_state == "Restricted" or cap_status == "Closed":
+            cta_state = "Restricted"
+        elif cap_status == "Full" or (max_orders > 0 and cur_orders >= max_orders):
+            cta_state = "Full"
+        elif opp.get("approval_required", "").strip() == "Yes":
+            cta_state = "Approval Required"
+        else:
+            cta_state = "Available"
+
+        released_opps.append({
+            "spvId": opp_spv,
+            "dealId": opp_deal,
+            "releaseToLevel": release_level,
+            "visibilityMode": vis_mode,
+            "approvalRequired": opp.get("approval_required", "").strip() == "Yes",
+            "capacityStatus": cap_status,
+            "maxOrders": max_orders,
+            "currentOrders": cur_orders,
+            "accessState": access_state,
+            "ctaState": cta_state,
+            "notes": opp.get("notes", "").strip(),
+            "deal": masked_deal,
+            "capitalStack": masked_cap[0] if masked_cap else {},
+            "dealSummary": masked_ds[0] if masked_ds else {},
+            "validation": (mask_validation_l2(val_rows[0]) if vis_mode in ("preview", "full") and val_rows else mask_validation_l1(val_rows[0]) if val_rows else {}),
+        })
+
+    # Personal stats
+    total_units = sum(parse_number(r.get("TOTAL_UNITS", 0)) for r in personal_main)
+    units_sold = sum(parse_number(r.get("UNITS_SOLD", 0)) for r in personal_main)
+    user_orders = [r for r in personal_orders if r.get("Partner_Email", "").strip().lower() == user["email"]]
+    active_user_orders = [r for r in user_orders if r.get("Payment_Status", "").strip() in ("Pending", "Active", "Completed")]
     caps = CAPS.get(level, CAPS["LEVEL_1"])
 
     return {
@@ -1173,24 +1252,27 @@ async def get_user_dashboard(email: str):
             "assignedSpvId": spv_id,
             "licenseId": user["license_id"],
         },
-        "stats": {
-            "totalDeals": total_deals,
-            "activeSPVs": 1,
-            "totalUnits": int(total_units),
-            "unitsSold": int(units_sold),
+        "personalContext": {
+            "stats": {
+                "totalDeals": len(p_main),
+                "activeSPVs": 1,
+                "totalUnits": int(total_units),
+                "unitsSold": int(units_sold),
+            },
+            "mainMaps": p_main,
+            "spvRegistry": p_reg,
+            "capitalStack": p_cap,
+            "waterfall": p_wf,
+            "dealSummary": p_ds,
+            "validation": p_val,
+            "orders": p_orders,
         },
-        "mainMaps": main_maps,
-        "spvRegistry": spv_registry,
-        "capitalStack": capital_stack,
-        "waterfall": waterfall,
-        "dealSummary": deal_summary,
-        "validation": validation,
-        "orders": orders,
+        "opportunities": released_opps,
         "caps": {
             "maxActiveRequests": caps["max_active_requests"],
             "canParticipate": caps["can_participate"],
-            "activeOrderCount": len(active_orders),
-            "capReached": len(active_orders) >= caps["max_active_requests"],
+            "activeOrderCount": len(active_user_orders),
+            "capReached": len(active_user_orders) >= caps["max_active_requests"],
         },
     }
 
