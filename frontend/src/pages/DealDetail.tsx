@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { fetchDealById, fetchSPVVisibility, formatCurrency, getVisibility, isFieldVisible, type Deal, type VisibilityMap, type VisibilityState } from '../api/deals';
+import { fetchDealById, resolveUser, formatCurrency, licenseToVisibility, licenseAllowsWaterfall, isFieldVisible, type Deal, type VisibilityState } from '../api/deals';
+import { isAuthenticated } from '../api/auth';
 
 function MaskedField({ label }: { label?: string }) {
   return (
@@ -25,14 +26,15 @@ export default function DealDetail() {
       
       try {
         setLoading(true);
-        const [data, visMap] = await Promise.all([
+        const [data, user] = await Promise.all([
           fetchDealById(id),
-          fetchSPVVisibility()
+          resolveUser()
         ]);
         setDeal(data);
-        const vis = getVisibility(visMap, data.spv);
-        setVisibility(vis.visibilityState);
-        setWaterfallVisible(vis.waterfallVisible);
+        if (user) {
+          setVisibility(licenseToVisibility(user.licenseLevel));
+          setWaterfallVisible(licenseAllowsWaterfall(user.licenseLevel));
+        }
         setError(null);
       } catch (err) {
         setError(`Deal ${id} not found`);
@@ -42,7 +44,12 @@ export default function DealDetail() {
       }
     };
 
-    loadDeal();
+    if (isAuthenticated()) {
+      loadDeal();
+    } else {
+      setError('Not authenticated. Please log in via Bolt.');
+      setLoading(false);
+    }
   }, [id]);
 
   if (loading) {

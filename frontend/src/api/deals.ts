@@ -57,6 +57,22 @@ export interface UserInfo {
   assignedSpvId: string;
 }
 
+// Map license_level from Licensed Users sheet to visibility state
+// LEVEL_1 = teaser (restricted), LEVEL_2 = preview (expanded), LEVEL_3 = full (operator)
+export function licenseToVisibility(licenseLevel: string): VisibilityState {
+  switch (licenseLevel) {
+    case 'LEVEL_3': return 'full';
+    case 'LEVEL_2': return 'preview';
+    case 'LEVEL_1':
+    default: return 'teaser';
+  }
+}
+
+// Whether waterfall data is visible for a given license level
+export function licenseAllowsWaterfall(licenseLevel: string): boolean {
+  return licenseLevel === 'LEVEL_3';
+}
+
 export interface UserDashboardData extends DashboardData {
   user: UserInfo;
 }

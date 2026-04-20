@@ -73,6 +73,14 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - No mock data — all live from Google Sheets
 - Bolt handles auth/login, Emergent reads sheets and serves scoped data, OpenClaw is messaging only
 
+### Phase 7: License-Level Visibility Rules (Complete — 2026-04-20)
+- LEVEL_1 (teaser): deal count, SPV name, county/state, status visible. Prices, capital stack, waterfall, HoldCo, Documents all restricted
+- LEVEL_2 (preview): + purchase price, monthly payment, capital stack breakdown, portfolio distribution, HoldCo summary, Documents
+- LEVEL_3 (full): + address, seller name, net to seller, waterfall data, document upload
+- Applied to: Dashboard stats, DealCard, DealDetail, CapitalStack, SPVRegistry, Waterfalls, HoldCo Summary, Documents
+- Frontend uses `licenseToVisibility()` mapper from Licensed Users sheet license_level field
+- No UI redesign — same layout, just content gated by level
+
 ## Backlog
 
 ### P1: Persistent Orchestration State

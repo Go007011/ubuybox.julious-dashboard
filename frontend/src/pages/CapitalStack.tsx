@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import DealCard from '../components/DealCard';
-import { fetchUserDeals, fetchSPVVisibility, formatCurrency, getVisibility, type Deal, type VisibilityMap } from '../api/deals';
+import { fetchUserDeals, resolveUser, formatCurrency, licenseToVisibility, type Deal, type VisibilityState } from '../api/deals';
 import { isAuthenticated } from '../api/auth';
 
 export default function CapitalStack() {
   const [deals, setDeals] = useState<Deal[]>([]);
-  const [visibilityMap, setVisibilityMap] = useState<VisibilityMap>({});
+  const [visibility, setVisibility] = useState<VisibilityState>('teaser');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -13,12 +13,12 @@ export default function CapitalStack() {
     const loadDeals = async () => {
       try {
         setLoading(true);
-        const [data, vis] = await Promise.all([
+        const [data, user] = await Promise.all([
           fetchUserDeals(),
-          fetchSPVVisibility()
+          resolveUser()
         ]);
         setDeals(data);
-        setVisibilityMap(vis);
+        if (user) setVisibility(licenseToVisibility(user.licenseLevel));
         setError(null);
       } catch (err: any) {
         setError(err?.message || 'Failed to load deals');
@@ -68,6 +68,7 @@ export default function CapitalStack() {
   const totalMezz = deals.reduce((sum, d) => sum + d.mezz, 0);
   const totalEquity = deals.reduce((sum, d) => sum + d.equity, 0);
   const stackTotal = totalSenior + totalMezz + totalEquity;
+  const showFinancials = visibility === 'preview' || visibility === 'full';
 
   return (
     <div className="space-y-6" data-testid="capital-stack-page">
@@ -75,27 +76,27 @@ export default function CapitalStack() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="glass-card p-5">
           <p className="text-sm text-slate-400">Total Capital</p>
-          <p className="text-2xl font-bold text-white mt-1">{formatCurrency(totalCapital)}</p>
+          <p className="text-2xl font-bold text-white mt-1">{showFinancials ? formatCurrency(totalCapital) : 'Restricted'}</p>
         </div>
         <div className="glass-card p-5 border-blue-500/20">
           <p className="text-sm text-slate-400">Senior Debt</p>
-          <p className="text-2xl font-bold text-blue-400 mt-1">{formatCurrency(totalSenior)}</p>
-          <p className="text-xs text-slate-500 mt-1">{stackTotal > 0 ? ((totalSenior / stackTotal) * 100).toFixed(1) : 0}% of stack</p>
+          <p className="text-2xl font-bold text-blue-400 mt-1">{showFinancials ? formatCurrency(totalSenior) : 'Restricted'}</p>
+          {showFinancials && <p className="text-xs text-slate-500 mt-1">{stackTotal > 0 ? ((totalSenior / stackTotal) * 100).toFixed(1) : 0}% of stack</p>}
         </div>
         <div className="glass-card p-5 border-purple-500/20">
           <p className="text-sm text-slate-400">Mezzanine</p>
-          <p className="text-2xl font-bold text-purple-400 mt-1">{formatCurrency(totalMezz)}</p>
-          <p className="text-xs text-slate-500 mt-1">{stackTotal > 0 ? ((totalMezz / stackTotal) * 100).toFixed(1) : 0}% of stack</p>
+          <p className="text-2xl font-bold text-purple-400 mt-1">{showFinancials ? formatCurrency(totalMezz) : 'Restricted'}</p>
+          {showFinancials && <p className="text-xs text-slate-500 mt-1">{stackTotal > 0 ? ((totalMezz / stackTotal) * 100).toFixed(1) : 0}% of stack</p>}
         </div>
         <div className="glass-card p-5 border-orange-500/20">
           <p className="text-sm text-slate-400">Equity</p>
-          <p className="text-2xl font-bold text-orange-400 mt-1">{formatCurrency(totalEquity)}</p>
-          <p className="text-xs text-slate-500 mt-1">{stackTotal > 0 ? ((totalEquity / stackTotal) * 100).toFixed(1) : 0}% of stack</p>
+          <p className="text-2xl font-bold text-orange-400 mt-1">{showFinancials ? formatCurrency(totalEquity) : 'Restricted'}</p>
+          {showFinancials && <p className="text-xs text-slate-500 mt-1">{stackTotal > 0 ? ((totalEquity / stackTotal) * 100).toFixed(1) : 0}% of stack</p>}
         </div>
       </div>
 
-      {/* Portfolio Distribution */}
-      {stackTotal > 0 && (
+      {/* Portfolio Distribution — only at LEVEL_2+ */}
+      {showFinancials && stackTotal > 0 && (
         <div className="glass-card p-6">
           <h2 className="text-lg font-semibold text-white mb-4">Portfolio Capital Distribution</h2>
           <div className="flex h-8 rounded-xl overflow-hidden">
@@ -138,7 +139,7 @@ export default function CapitalStack() {
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {deals.map((deal) => (
-            <DealCard key={deal.id} deal={deal} visibility={getVisibility(visibilityMap, deal.spv).visibilityState} />
+            <DealCard key={deal.id} deal={deal} visibility={visibility} />
           ))}
         </div>
       </div>

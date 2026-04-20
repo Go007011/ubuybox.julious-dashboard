@@ -1,4 +1,48 @@
+import { useState, useEffect } from 'react';
+import { resolveUser, licenseToVisibility, type VisibilityState } from '../api/deals';
+import { isAuthenticated } from '../api/auth';
+
 export default function HoldCoSummary() {
+  const [visibility, setVisibility] = useState<VisibilityState>('teaser');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      if (isAuthenticated()) {
+        const user = await resolveUser();
+        if (user) setVisibility(licenseToVisibility(user.licenseLevel));
+      }
+      setLoading(false);
+    };
+    load();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+      </div>
+    );
+  }
+
+  const showFinancials = visibility === 'preview' || visibility === 'full';
+
+  if (!showFinancials) {
+    return (
+      <div className="space-y-6" data-testid="holdco-summary-page">
+        <div className="glass-card p-8 text-center">
+          <svg className="w-16 h-16 text-slate-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+          <h2 className="text-xl font-semibold text-white mb-2">HoldCo Summary Restricted</h2>
+          <p className="text-slate-400 max-w-md mx-auto">
+            Holding company summary data requires Level 2 or higher access. Your current license level does not include HoldCo visibility.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const holdCoData = [
     { name: 'UBUYBOX Holdings I', spvCount: 8, totalAssets: 4500000, netIncome: 320000, status: 'active' },
     { name: 'UBUYBOX Holdings II', spvCount: 5, totalAssets: 2800000, netIncome: 180000, status: 'active' },

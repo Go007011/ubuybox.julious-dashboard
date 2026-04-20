@@ -4,8 +4,8 @@ import StatCard from '../components/StatCard';
 import DealCard from '../components/DealCard';
 import ActivityFeed from '../components/ActivityFeed';
 import QuickActions from '../components/QuickActions';
-import { fetchUserDashboard, fetchSPVVisibility, formatCurrency, getVisibility, type Deal, type UserDashboardData, type VisibilityMap, type UserInfo } from '../api/deals';
-import { isAuthenticated, getAuthEmail } from '../api/auth';
+import { fetchUserDashboard, formatCurrency, licenseToVisibility, type Deal, type UserDashboardData, type VisibilityState, type UserInfo } from '../api/deals';
+import { isAuthenticated } from '../api/auth';
 
 // Icon components for stat cards
 const BuildingIcon = () => (
@@ -44,7 +44,7 @@ const generateActivities = (deals: Deal[]) => {
 
 export default function Dashboard() {
   const [dashboardData, setDashboardData] = useState<UserDashboardData | null>(null);
-  const [visibilityMap, setVisibilityMap] = useState<VisibilityMap>({});
+  const [visibility, setVisibility] = useState<VisibilityState>('teaser');
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,13 +53,12 @@ export default function Dashboard() {
     const loadDashboard = async () => {
       try {
         setLoading(true);
-        const [data, vis] = await Promise.all([
-          fetchUserDashboard(),
-          fetchSPVVisibility()
-        ]);
+        const data = await fetchUserDashboard();
         setDashboardData(data);
         setUserInfo(data.user || null);
-        setVisibilityMap(vis);
+        if (data.user) {
+          setVisibility(licenseToVisibility(data.user.licenseLevel));
+        }
         setError(null);
       } catch (err: any) {
         setError(err?.message || 'Failed to load dashboard data');
@@ -106,6 +105,7 @@ export default function Dashboard() {
 
   const { totalDeals, activeSPVs, totalCapital, avgMonthlyPayment, statusCounts, recentDeals } = dashboardData;
   const activities = generateActivities(recentDeals);
+  const showFinancials = visibility === 'preview' || visibility === 'full';
 
   return (
     <div className="space-y-6" data-testid="dashboard-page">
@@ -129,17 +129,17 @@ export default function Dashboard() {
         />
         <StatCard
           title="Total Capital"
-          value={formatCurrency(totalCapital)}
-          change="From Google Sheets"
-          changeType="positive"
+          value={showFinancials ? formatCurrency(totalCapital) : 'Restricted'}
+          change={showFinancials ? 'From Google Sheets' : `Requires ${visibility === 'teaser' ? 'Level 2+' : 'upgrade'}`}
+          changeType={showFinancials ? 'positive' : 'neutral'}
           icon={<DollarIcon />}
           iconBg="bg-emerald-500/10"
         />
         <StatCard
           title="Avg. Monthly Payment"
-          value={`$${avgMonthlyPayment.toLocaleString()}`}
-          change="Across all deals"
-          changeType="neutral"
+          value={showFinancials ? `$${avgMonthlyPayment.toLocaleString()}` : 'Restricted'}
+          change={showFinancials ? 'Across all deals' : `Requires ${visibility === 'teaser' ? 'Level 2+' : 'upgrade'}`}
+          changeType={showFinancials ? 'neutral' : 'neutral'}
           icon={<ChartIcon />}
           iconBg="bg-orange-500/10"
         />
@@ -160,7 +160,7 @@ export default function Dashboard() {
           </div>
           <div className="space-y-4">
             {recentDeals.slice(0, 3).map((deal) => (
-              <DealCard key={deal.id} deal={deal} visibility={getVisibility(visibilityMap, deal.spv).visibilityState} />
+              <DealCard key={deal.id} deal={deal} visibility={visibility} />
             ))}
           </div>
         </div>
