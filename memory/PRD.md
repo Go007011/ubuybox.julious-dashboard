@@ -102,6 +102,14 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Hard masking enforced on all opportunity cards (no addresses, seller, agent info)
 - Dashboard is no longer a broad marketplace — only intentionally released private opportunities shown
 
+### Phase 10: Internal Admin Control Layer (Complete — 2026-04-20)
+- Admin-only page at /admin with 5 tabbed modules: Requests Queue, Orders Control, Release Control, User Access, Notifications
+- Access restricted to mrbraboy+007011@gmail.com only (backend 403 + frontend gate + nav hidden)
+- Backend: 10 new admin endpoints (/api/admin/check, requests, requests/action, orders, orders/action, releases, releases/action, users, users/action, notifications, notifications/action)
+- User requests from dashboard automatically populate admin Requests Queue
+- Cleanly separated from partner-facing experience — no admin controls leak into user pages
+- Admin email uses synthetic LEVEL_3 record when not in Licensed Users sheet
+
 ## Backlog
 
 ### P1: Persistent Orchestration State

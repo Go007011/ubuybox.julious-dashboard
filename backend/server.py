@@ -13,6 +13,7 @@ import os
 import re
 import csv
 import io
+import uuid
 import httpx
 import secrets
 import logging
@@ -66,6 +67,9 @@ SHEET_OPP_RELEASE = "Opportunity Release Control"
 
 # Level hierarchy for release filtering
 LEVEL_HIERARCHY = {"LEVEL_1": 1, "LEVEL_2": 2, "LEVEL_3": 3}
+
+# Admin configuration
+ADMIN_EMAIL = "mrbraboy+007011@gmail.com"
 
 # Hard-masked fields — NEVER shown to any partner-facing user
 HARD_MASKED_FIELDS = {
@@ -1088,6 +1092,25 @@ async def _resolve_and_validate(email: str) -> dict:
     """Common auth resolution. Returns user dict or raises HTTPException."""
     if not email or not email.strip():
         raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "Email parameter is required"})
+    
+    # Admin bypass — admin may not be in Licensed Users sheet
+    if email.strip().lower() == ADMIN_EMAIL:
+        users = await fetch_access_control()
+        user = resolve_user_access(users, email)
+        if user:
+            return user
+        # Admin not in sheet — return synthetic admin record
+        return {
+            "license_id": "ADMIN",
+            "email": ADMIN_EMAIL,
+            "owner_name": "Admin",
+            "license_level": "LEVEL_3",
+            "status": "Active",
+            "assigned_spv_id": "SPV_011",
+            "access_type": "Admin",
+            "source": "System",
+        }
+    
     users = await fetch_access_control()
     user = resolve_user_access(users, email)
     if not user:
@@ -1311,16 +1334,19 @@ async def request_action(body: RequestActionBody):
             "message": f"You have reached the maximum active requests ({caps['max_active_requests']}) for your license level."
         })
 
-    # Log the request (in-memory for now — persistent storage is a backlog item)
+    # Log the request (in-memory + admin queue)
     request_record = {
-        "email": user["email"],
+        "request_id": str(uuid.uuid4())[:8],
+        "user_email": user["email"],
         "license_id": user["license_id"],
-        "assigned_spv_id": spv_id,
         "license_level": level,
-        "action": body.action,
+        "spv_id": spv_id,
+        "deal_id": "",
+        "request_type": body.action,
+        "request_status": "pending_review",
         "timestamp": datetime.utcnow().isoformat(),
-        "status": "pending_review",
     }
+    admin_requests_store.append(request_record)
     logger.info(f"Request action logged: {request_record}")
 
     return {
@@ -1355,6 +1381,201 @@ async def get_user_spvs(email: str):
     else:
         masked = [mask_spv_registry_l1(r) for r in spv_reg_raw]
     return {"spvs": masked, "count": len(masked)}
+
+
+# ============= ADMIN CONTROL LAYER =============
+# In-memory stores (for requests and notifications — persistent storage is backlog)
+
+admin_requests_store: list[dict] = []
+admin_notifications_store: list[dict] = []
+
+
+def _require_admin(email: str):
+    if email.strip().lower() != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail={"error": "forbidden", "message": "Admin access required"})
+
+
+@app.get("/api/admin/check")
+async def admin_check(email: str):
+    """Check if the given email has admin access."""
+    return {"isAdmin": email.strip().lower() == ADMIN_EMAIL}
+
+
+# --- 1. Requests Queue ---
+@app.get("/api/admin/requests")
+async def admin_get_requests(email: str):
+    _require_admin(email)
+    return {"requests": admin_requests_store, "count": len(admin_requests_store)}
+
+
+class AdminRequestAction(BaseModel):
+    email: str
+    requestId: str
+    action: str = Field(..., description="approve, deny, pending, escalate")
+
+
+@app.post("/api/admin/requests/action")
+async def admin_request_action(body: AdminRequestAction):
+    _require_admin(body.email)
+    valid = ["approve", "deny", "pending", "escalate"]
+    if body.action not in valid:
+        raise HTTPException(status_code=400, detail={"error": "invalid_action", "message": f"Must be one of: {valid}"})
+    for req in admin_requests_store:
+        if req["request_id"] == body.requestId:
+            req["request_status"] = body.action + "d" if body.action != "deny" else "denied"
+            if body.action == "escalate":
+                req["request_status"] = "escalated"
+            return {"success": True, "request": req}
+    raise HTTPException(status_code=404, detail={"error": "not_found", "message": "Request not found"})
+
+
+# --- 2. Orders Control ---
+@app.get("/api/admin/orders")
+async def admin_get_orders(email: str):
+    _require_admin(email)
+    orders = await fetch_sheet_tab(SHEET_ORDERS)
+    return {"orders": orders, "count": len(orders)}
+
+
+class AdminOrderAction(BaseModel):
+    email: str
+    orderId: str
+    action: str = Field(..., description="approve, hold, reject, complete")
+
+
+@app.post("/api/admin/orders/action")
+async def admin_order_action(body: AdminOrderAction):
+    _require_admin(body.email)
+    valid = ["approve", "hold", "reject", "complete"]
+    if body.action not in valid:
+        raise HTTPException(status_code=400, detail={"error": "invalid_action", "message": f"Must be one of: {valid}"})
+    # Log the action (read-only sheet — action is recorded in-memory)
+    record = {
+        "order_id": body.orderId,
+        "action": body.action,
+        "admin": body.email,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    logger.info(f"Admin order action: {record}")
+    return {"success": True, "action": record}
+
+
+# --- 3. Opportunity Release Control ---
+@app.get("/api/admin/releases")
+async def admin_get_releases(email: str):
+    _require_admin(email)
+    releases = await fetch_sheet_tab(SHEET_OPP_RELEASE)
+    return {"releases": releases, "count": len(releases)}
+
+
+class AdminReleaseAction(BaseModel):
+    email: str
+    spvId: str
+    action: str = Field(..., description="release, pause, close")
+    releaseToLevel: Optional[str] = None
+    maxOrdersAllowed: Optional[int] = None
+    approvalRequired: Optional[str] = None
+
+
+@app.post("/api/admin/releases/action")
+async def admin_release_action(body: AdminReleaseAction):
+    _require_admin(body.email)
+    valid = ["release", "pause", "close", "change_level", "change_cap", "change_approval"]
+    if body.action not in valid:
+        raise HTTPException(status_code=400, detail={"error": "invalid_action", "message": f"Must be one of: {valid}"})
+    record = {
+        "spv_id": body.spvId,
+        "action": body.action,
+        "release_to_level": body.releaseToLevel,
+        "max_orders_allowed": body.maxOrdersAllowed,
+        "approval_required": body.approvalRequired,
+        "admin": body.email,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    logger.info(f"Admin release action: {record}")
+    return {"success": True, "action": record, "message": f"Release action '{body.action}' recorded for {body.spvId}. Sheet update required to persist."}
+
+
+# --- 4. User Access Control ---
+@app.get("/api/admin/users")
+async def admin_get_users(email: str):
+    _require_admin(email)
+    users = await fetch_access_control()
+    return {"users": users, "count": len(users)}
+
+
+class AdminUserAction(BaseModel):
+    email: str
+    targetEmail: str
+    action: str = Field(..., description="upgrade, downgrade, activate, suspend, assign_spv, remove_spv")
+    value: Optional[str] = None
+
+
+@app.post("/api/admin/users/action")
+async def admin_user_action(body: AdminUserAction):
+    _require_admin(body.email)
+    valid = ["upgrade", "downgrade", "activate", "suspend", "assign_spv", "remove_spv"]
+    if body.action not in valid:
+        raise HTTPException(status_code=400, detail={"error": "invalid_action", "message": f"Must be one of: {valid}"})
+    record = {
+        "target_email": body.targetEmail,
+        "action": body.action,
+        "value": body.value,
+        "admin": body.email,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    logger.info(f"Admin user action: {record}")
+    return {"success": True, "action": record, "message": f"User action '{body.action}' recorded for {body.targetEmail}. Sheet update required to persist."}
+
+
+# --- 5. Notifications Control ---
+@app.get("/api/admin/notifications")
+async def admin_get_notifications(email: str):
+    _require_admin(email)
+    return {"notifications": admin_notifications_store, "count": len(admin_notifications_store)}
+
+
+class AdminNotificationAction(BaseModel):
+    email: str
+    action: str = Field(..., description="send, resend, draft, archive")
+    notificationType: Optional[str] = "general"
+    targetLevel: Optional[str] = None
+    targetUser: Optional[str] = None
+    relatedSpvId: Optional[str] = None
+    relatedDealId: Optional[str] = None
+    message: Optional[str] = None
+
+
+@app.post("/api/admin/notifications/action")
+async def admin_notification_action(body: AdminNotificationAction):
+    _require_admin(body.email)
+    valid = ["send", "resend", "draft", "archive"]
+    if body.action not in valid:
+        raise HTTPException(status_code=400, detail={"error": "invalid_action", "message": f"Must be one of: {valid}"})
+    notif = {
+        "notification_id": str(uuid.uuid4())[:8],
+        "notification_type": body.notificationType or "general",
+        "target_level": body.targetLevel,
+        "target_user": body.targetUser,
+        "related_spv_id": body.relatedSpvId,
+        "related_deal_id": body.relatedDealId,
+        "message": body.message,
+        "status": body.action + ("ted" if body.action == "draf" else "ed") if body.action != "send" else "sent",
+        "admin": body.email,
+        "sent_timestamp": datetime.utcnow().isoformat(),
+    }
+    if body.action == "draft":
+        notif["status"] = "drafted"
+    elif body.action == "archive":
+        notif["status"] = "archived"
+    elif body.action in ("send", "resend"):
+        notif["status"] = "sent"
+    admin_notifications_store.append(notif)
+    logger.info(f"Admin notification: {notif}")
+    return {"success": True, "notification": notif}
+
+
+# ============= ORCHESTRATION ENDPOINTS =============
 
 
 # ============= ORCHESTRATION ENDPOINTS =============

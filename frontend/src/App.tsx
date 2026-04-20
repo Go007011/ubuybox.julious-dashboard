@@ -9,6 +9,7 @@ import HoldCoSummary from './pages/HoldCoSummary';
 import Documents from './pages/Documents';
 import Notifications from './pages/Notifications';
 import DealDetail from './pages/DealDetail';
+import AdminControl from './pages/AdminControl';
 import './index.css';
 
 export default function App() {
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="/documents" element={<Documents />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/deal/:id" element={<DealDetail />} />
+        <Route path="/admin" element={<AdminControl />} />
       </Routes>
     </Layout>
   );

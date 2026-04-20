@@ -12,6 +12,8 @@
 - Pattern continues for +013 through +030
 - Login via: URL param `?email=mrbraboy%2B011@gmail.com` or sidebar email input
 
-## App Auth
-- No standalone auth system in Emergent. Bolt controls auth/login.
-- Emergent reads the authenticated email from Bolt session context.
+## Admin Access
+- Admin email: `mrbraboy+007011@gmail.com`
+- Admin page: `/admin` (hidden from all non-admin users)
+- Login via: `?email=mrbraboy%2B007011@gmail.com` or sidebar email input
+- Admin sees all 11 opportunities (L1+L2+L3), full LEVEL_3 dashboard, plus Admin Control nav item
