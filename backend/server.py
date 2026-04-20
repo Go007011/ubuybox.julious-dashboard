@@ -53,7 +53,7 @@ app.add_middleware(
 # ============= CONFIGURATION =============
 
 # Google Sheet configuration (source of truth)
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1EmXsM7W_ny28d4YRh8M3U7mOLO9uC5tjQKJF11Z7AeA")
+SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 ACCESS_CONTROL_GID = "1056764769"
 
 # Sheet tab names
@@ -70,7 +70,7 @@ SHEET_OPP_RELEASE = "Opportunity Release Control"
 LEVEL_HIERARCHY = {"LEVEL_1": 1, "LEVEL_2": 2, "LEVEL_3": 3}
 
 # Admin configuration
-ADMIN_EMAIL = "mrbraboy+007011@gmail.com"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "mrbraboy+007011@gmail.com")
 
 # Hard-masked fields — NEVER shown to any partner-facing user
 HARD_MASKED_FIELDS = {
@@ -86,10 +86,7 @@ CAPS = {
 }
 
 # Orchestration API Token
-ORCHESTRATION_API_TOKEN = os.environ.get(
-    "ORCHESTRATION_API_TOKEN", 
-    "ubx_orch_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0"
-)
+ORCHESTRATION_API_TOKEN = os.environ.get("ORCHESTRATION_API_TOKEN")
 
 logger.info(f"Emergent orchestration layer initialized. Token configured: {bool(ORCHESTRATION_API_TOKEN)}")
 
