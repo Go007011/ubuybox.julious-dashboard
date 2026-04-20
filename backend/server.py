@@ -1416,6 +1416,51 @@ async def get_user_spvs(email: str):
     return {"spvs": masked, "count": len(masked)}
 
 
+@app.get("/api/user/notifications")
+async def get_user_notifications(email: str):
+    """
+    User-facing notifications. Only returns admin-sent notifications
+    targeted to this user by email, level, SPV, or deal context.
+    Drafts and archived items are excluded. Admin notes are stripped.
+    """
+    user = await _resolve_and_validate(email)
+    level = user["license_level"]
+    spv_id = user["assigned_spv_id"]
+    user_email = user["email"]
+
+    # Fetch all sent notifications
+    all_sent = list(notifications_col.find(
+        {"notification_status": "sent"},
+        {"_id": 0, "admin_notes": 0, "created_by": 0}
+    ).sort("sent_timestamp", -1))
+
+    # Filter to notifications intended for this user
+    result = []
+    for n in all_sent:
+        target_user = (n.get("target_user") or "").strip().lower()
+        target_level = (n.get("target_level") or "").strip()
+        related_spv = (n.get("related_spv_id") or "").strip()
+
+        # If target_user is set, must match exactly
+        if target_user and target_user != user_email:
+            continue
+
+        # If target_level is set, user must be at or above that level
+        if target_level:
+            target_num = LEVEL_HIERARCHY.get(target_level, 99)
+            user_num = LEVEL_HIERARCHY.get(level, 0)
+            if user_num < target_num:
+                continue
+
+        # If related_spv is set, must match user's SPV
+        if related_spv and related_spv != spv_id:
+            continue
+
+        result.append(n)
+
+    return {"notifications": result, "count": len(result)}
+
+
 # ============= ADMIN CONTROL LAYER =============
 # Persistent storage via MongoDB (requests_col, notifications_col, admin_actions_col)
 

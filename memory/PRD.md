@@ -128,6 +128,15 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Actions: Send, Save Draft, Edit Draft, Resend, Archive
 - GET /api/admin/templates endpoint returns all canned templates
 
+### Phase 13: Admin-Originated User Notifications (Complete — 2026-04-20)
+- User-facing Notifications page now reads exclusively from MongoDB admin_notifications collection
+- All mock/demo/hardcoded notifications removed
+- New endpoint: GET /api/user/notifications?email= — filters sent notifications by target_user, target_level, and related_spv_id
+- Filtering: exact email match if target_user set, level hierarchy if target_level set, SPV match if related_spv set
+- Admin notes and created_by stripped from user-facing response
+- Empty state: "No notifications at this time."
+- Card layout matches admin panel style with type-colored icons and relative timestamps
+
 ## Backlog
 
 ### P1: Persistent Orchestration State
