@@ -70,7 +70,7 @@ SHEET_OPP_RELEASE = "Opportunity Release Control"
 LEVEL_HIERARCHY = {"LEVEL_1": 1, "LEVEL_2": 2, "LEVEL_3": 3}
 
 # Admin configuration
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "mrbraboy+007011@gmail.com")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL")
 
 # Hard-masked fields — NEVER shown to any partner-facing user
 HARD_MASKED_FIELDS = {
@@ -496,7 +496,7 @@ async def fetch_sheet_data() -> list[dict]:
     Fetch and parse data from Google Sheets (source of truth).
     This is READ-ONLY - never modifies the sheet.
     """
-    url = get_csv_url(SPREADSHEET_ID, SHEET_NAME)
+    url = get_csv_url(SPREADSHEET_ID, SHEET_MAIN_MAPS)
     
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
@@ -1429,7 +1429,7 @@ async def get_user_notifications(email: str):
     all_sent = list(notifications_col.find(
         {"notification_status": "sent"},
         {"_id": 0, "admin_notes": 0, "created_by": 0}
-    ).sort("sent_timestamp", -1))
+    ).sort("sent_timestamp", -1).limit(200))
 
     # Filter to notifications intended for this user
     result = []
@@ -1498,7 +1498,7 @@ async def admin_get_templates(email: str):
 @app.get("/api/admin/requests")
 async def admin_get_requests(email: str):
     _require_admin(email)
-    docs = list(requests_col.find({}, {"_id": 0}).sort("timestamp", -1))
+    docs = list(requests_col.find({}, {"_id": 0}).sort("timestamp", -1).limit(200))
     return {"requests": docs, "count": len(docs)}
 
 
@@ -1634,7 +1634,7 @@ async def admin_user_action(body: AdminUserAction):
 @app.get("/api/admin/notifications")
 async def admin_get_notifications(email: str):
     _require_admin(email)
-    docs = list(notifications_col.find({}, {"_id": 0}).sort("sent_timestamp", -1))
+    docs = list(notifications_col.find({}, {"_id": 0}).sort("sent_timestamp", -1).limit(200))
     return {"notifications": docs, "count": len(docs)}
 
 
