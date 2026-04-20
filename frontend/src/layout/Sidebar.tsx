@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import ubuyboxLogo from '../assets/ubuybox-logo.png';
 
 const menuItems = [
   { name: 'Dashboard', path: '/', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -41,13 +41,12 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       >
         {/* Logo */}
         <div className="p-6 border-b border-slate-800">
-          <Link to="/" className="flex items-center gap-3" data-testid="logo-link" onClick={onClose}>
+          <Link to="/" className="flex items-center" data-testid="logo-link" onClick={onClose}>
             <img 
-              src="/logo.png" 
+              src={ubuyboxLogo}
               alt="UBUYBOX" 
-              className="w-10 h-10 rounded-xl object-contain"
+              className="h-8 object-contain"
             />
-            <span className="text-xl font-bold text-orange-500 tracking-tight">UBUYBOX</span>
           </Link>
         </div>
 
