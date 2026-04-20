@@ -23,6 +23,7 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const location = useLocation();
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginError, setLoginError] = useState('');
 
@@ -31,6 +32,17 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       if (isAuthenticated()) {
         const info = await resolveUser();
         setUserInfo(info);
+        // Check admin status via backend
+        const email = getAuthEmail();
+        if (email) {
+          try {
+            const res = await fetch(`/api/admin/check?email=${encodeURIComponent(email)}`);
+            if (res.ok) {
+              const data = await res.json();
+              setIsAdmin(data.isAdmin === true);
+            }
+          } catch {}
+        }
       }
     };
     loadUser();
@@ -120,8 +132,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             );
           })}
 
-          {/* Admin Control — only for admin email */}
-          {userInfo && userInfo.email === 'mrbraboy+007011@gmail.com' && (
+          {/* Admin Control — only for verified admin */}
+          {isAdmin && (
             <Link
               to="/admin"
               onClick={onClose}

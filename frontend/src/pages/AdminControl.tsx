@@ -1,9 +1,19 @@
 import { useState, useEffect } from 'react';
 import { getAuthEmail, isAuthenticated } from '../api/auth';
 
-const ADMIN_EMAIL = 'mrbraboy+007011@gmail.com';
 const API = '/api';
 const adminEmail = () => encodeURIComponent(getAuthEmail() || '');
+
+async function checkIsAdmin(): Promise<boolean> {
+  const email = getAuthEmail();
+  if (!email) return false;
+  try {
+    const res = await fetch(`${API}/admin/check?email=${encodeURIComponent(email)}`);
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.isAdmin === true;
+  } catch { return false; }
+}
 
 async function apiFetch(path: string) {
   const res = await fetch(`${API}${path}?email=${adminEmail()}`);
@@ -22,13 +32,15 @@ async function apiPost(path: string, body: Record<string, unknown>) {
 type Tab = 'requests' | 'orders' | 'releases' | 'users' | 'notifications';
 
 export default function AdminControl() {
-  const currentEmail = getAuthEmail()?.toLowerCase() || '';
-  const isAdmin = isAuthenticated() && currentEmail === ADMIN_EMAIL;
-
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [tab, setTab] = useState<Tab>('requests');
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    checkIsAdmin().then(result => setIsAdmin(result));
+  }, []);
 
   const loadTab = async (t: Tab) => {
     setLoading(true); setMsg('');
@@ -39,7 +51,11 @@ export default function AdminControl() {
     setLoading(false);
   };
 
-  useEffect(() => { if (isAdmin) loadTab(tab); }, [tab]);
+  useEffect(() => { if (isAdmin) loadTab(tab); }, [tab, isAdmin]);
+
+  if (isAdmin === null) {
+    return <div className="flex items-center justify-center min-h-[400px]"><div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div></div>;
+  }
 
   if (!isAdmin) {
     return (
