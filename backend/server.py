@@ -20,6 +20,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Literal, List
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
+from pymongo import MongoClient
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -91,6 +92,17 @@ ORCHESTRATION_API_TOKEN = os.environ.get(
 )
 
 logger.info(f"Emergent orchestration layer initialized. Token configured: {bool(ORCHESTRATION_API_TOKEN)}")
+
+# MongoDB connection for persistent storage
+MONGO_URL = os.environ.get("MONGO_URL")
+DB_NAME = os.environ.get("DB_NAME")
+mongo_client = MongoClient(MONGO_URL)
+db = mongo_client[DB_NAME]
+requests_col = db["admin_requests"]
+notifications_col = db["admin_notifications"]
+admin_actions_col = db["admin_actions"]
+
+logger.info("MongoDB connected for persistent admin storage")
 
 
 # ============= VISIBILITY STATES =============
@@ -1355,7 +1367,7 @@ async def request_action(body: RequestActionBody):
             "message": f"You have reached the maximum active requests ({caps['max_active_requests']}) for your license level."
         })
 
-    # Log the request (in-memory + admin queue)
+    # Log the request (persistent via MongoDB)
     request_record = {
         "request_id": str(uuid.uuid4())[:8],
         "user_email": user["email"],
@@ -1367,7 +1379,7 @@ async def request_action(body: RequestActionBody):
         "request_status": "pending_review",
         "timestamp": datetime.utcnow().isoformat(),
     }
-    admin_requests_store.append(request_record)
+    requests_col.insert_one(dict(request_record))
     logger.info(f"Request action logged: {request_record}")
 
     return {
@@ -1405,10 +1417,23 @@ async def get_user_spvs(email: str):
 
 
 # ============= ADMIN CONTROL LAYER =============
-# In-memory stores (for requests and notifications — persistent storage is backlog)
+# Persistent storage via MongoDB (requests_col, notifications_col, admin_actions_col)
 
-admin_requests_store: list[dict] = []
-admin_notifications_store: list[dict] = []
+# Canned notification templates
+CANNED_TEMPLATES = {
+    "Deal Approved": "Your deal has been approved and is ready for the next phase.",
+    "Deal Closed": "The deal has been successfully closed. Final documents are available.",
+    "Review Required": "A deal requires your review before proceeding.",
+    "Capital Call Reminder": "A capital call is scheduled. Please review the details.",
+    "Document Uploaded": "A new document has been uploaded to your SPV.",
+    "Request Approved": "Your request has been approved.",
+    "Request Denied": "Your request has been reviewed and was not approved at this time.",
+    "Participation Approved": "Your participation request has been approved.",
+    "Participation Pending": "Your participation request is under review.",
+    "Opportunity Released": "A new opportunity has been released for your level.",
+    "Capacity Full": "This opportunity has reached capacity.",
+    "General Notice": "",
+}
 
 
 def _require_admin(email: str):
@@ -1418,15 +1443,21 @@ def _require_admin(email: str):
 
 @app.get("/api/admin/check")
 async def admin_check(email: str):
-    """Check if the given email has admin access."""
     return {"isAdmin": email.strip().lower() == ADMIN_EMAIL}
+
+
+@app.get("/api/admin/templates")
+async def admin_get_templates(email: str):
+    _require_admin(email)
+    return {"templates": CANNED_TEMPLATES}
 
 
 # --- 1. Requests Queue ---
 @app.get("/api/admin/requests")
 async def admin_get_requests(email: str):
     _require_admin(email)
-    return {"requests": admin_requests_store, "count": len(admin_requests_store)}
+    docs = list(requests_col.find({}, {"_id": 0}).sort("timestamp", -1))
+    return {"requests": docs, "count": len(docs)}
 
 
 class AdminRequestAction(BaseModel):
@@ -1441,13 +1472,21 @@ async def admin_request_action(body: AdminRequestAction):
     valid = ["approve", "deny", "pending", "escalate"]
     if body.action not in valid:
         raise HTTPException(status_code=400, detail={"error": "invalid_action", "message": f"Must be one of: {valid}"})
-    for req in admin_requests_store:
-        if req["request_id"] == body.requestId:
-            req["request_status"] = body.action + "d" if body.action != "deny" else "denied"
-            if body.action == "escalate":
-                req["request_status"] = "escalated"
-            return {"success": True, "request": req}
-    raise HTTPException(status_code=404, detail={"error": "not_found", "message": "Request not found"})
+    
+    status_map = {"approve": "approved", "deny": "denied", "pending": "pending_review", "escalate": "escalated"}
+    new_status = status_map.get(body.action, body.action)
+    
+    result = requests_col.find_one_and_update(
+        {"request_id": body.requestId},
+        {"$set": {"request_status": new_status}},
+        return_document=True
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail={"error": "not_found", "message": "Request not found"})
+    
+    admin_actions_col.insert_one({"type": "request_action", "request_id": body.requestId, "action": body.action, "admin": body.email, "timestamp": datetime.utcnow().isoformat()})
+    result.pop("_id", None)
+    return {"success": True, "request": result}
 
 
 # --- 2. Orders Control ---
@@ -1470,15 +1509,15 @@ async def admin_order_action(body: AdminOrderAction):
     valid = ["approve", "hold", "reject", "complete"]
     if body.action not in valid:
         raise HTTPException(status_code=400, detail={"error": "invalid_action", "message": f"Must be one of: {valid}"})
-    # Log the action (read-only sheet — action is recorded in-memory)
     record = {
+        "type": "order_action",
         "order_id": body.orderId,
         "action": body.action,
         "admin": body.email,
         "timestamp": datetime.utcnow().isoformat(),
     }
-    logger.info(f"Admin order action: {record}")
-    return {"success": True, "action": record}
+    admin_actions_col.insert_one(dict(record))
+    return {"success": True, "action": record, "message": f"Order action '{body.action}' recorded for {body.orderId}."}
 
 
 # --- 3. Opportunity Release Control ---
@@ -1513,7 +1552,7 @@ async def admin_release_action(body: AdminReleaseAction):
         "admin": body.email,
         "timestamp": datetime.utcnow().isoformat(),
     }
-    logger.info(f"Admin release action: {record}")
+    admin_actions_col.insert_one(dict(record))
     return {"success": True, "action": record, "message": f"Release action '{body.action}' recorded for {body.spvId}. Sheet update required to persist."}
 
 
@@ -1545,7 +1584,7 @@ async def admin_user_action(body: AdminUserAction):
         "admin": body.email,
         "timestamp": datetime.utcnow().isoformat(),
     }
-    logger.info(f"Admin user action: {record}")
+    admin_actions_col.insert_one(dict(record))
     return {"success": True, "action": record, "message": f"User action '{body.action}' recorded for {body.targetEmail}. Sheet update required to persist."}
 
 
@@ -1553,47 +1592,78 @@ async def admin_user_action(body: AdminUserAction):
 @app.get("/api/admin/notifications")
 async def admin_get_notifications(email: str):
     _require_admin(email)
-    return {"notifications": admin_notifications_store, "count": len(admin_notifications_store)}
+    docs = list(notifications_col.find({}, {"_id": 0}).sort("sent_timestamp", -1))
+    return {"notifications": docs, "count": len(docs)}
 
 
 class AdminNotificationAction(BaseModel):
     email: str
-    action: str = Field(..., description="send, resend, draft, archive")
-    notificationType: Optional[str] = "general"
+    action: str = Field(..., description="send, resend, draft, archive, edit")
+    notificationId: Optional[str] = None
+    notificationType: Optional[str] = "General Notice"
     targetLevel: Optional[str] = None
     targetUser: Optional[str] = None
     relatedSpvId: Optional[str] = None
     relatedDealId: Optional[str] = None
-    message: Optional[str] = None
+    messageBody: Optional[str] = None
+    adminNotes: Optional[str] = None
 
 
 @app.post("/api/admin/notifications/action")
 async def admin_notification_action(body: AdminNotificationAction):
     _require_admin(body.email)
-    valid = ["send", "resend", "draft", "archive"]
+    valid = ["send", "resend", "draft", "archive", "edit"]
     if body.action not in valid:
         raise HTTPException(status_code=400, detail={"error": "invalid_action", "message": f"Must be one of: {valid}"})
+
+    if body.action == "archive" and body.notificationId:
+        notifications_col.update_one(
+            {"notification_id": body.notificationId},
+            {"$set": {"notification_status": "archived"}}
+        )
+        return {"success": True, "message": "Notification archived."}
+
+    if body.action == "edit" and body.notificationId:
+        updates = {}
+        if body.messageBody is not None: updates["message_body"] = body.messageBody
+        if body.adminNotes is not None: updates["admin_notes"] = body.adminNotes
+        if body.notificationType: updates["notification_type"] = body.notificationType
+        if body.targetLevel: updates["target_level"] = body.targetLevel
+        if body.targetUser: updates["target_user"] = body.targetUser
+        if body.relatedSpvId: updates["related_spv_id"] = body.relatedSpvId
+        if updates:
+            notifications_col.update_one({"notification_id": body.notificationId}, {"$set": updates})
+        return {"success": True, "message": "Draft updated."}
+
+    if body.action == "resend" and body.notificationId:
+        existing = notifications_col.find_one({"notification_id": body.notificationId}, {"_id": 0})
+        if existing:
+            new_notif = dict(existing)
+            new_notif["notification_id"] = str(uuid.uuid4())[:8]
+            new_notif["notification_status"] = "sent"
+            new_notif["sent_timestamp"] = datetime.utcnow().isoformat()
+            new_notif["created_by"] = body.email
+            notifications_col.insert_one(dict(new_notif))
+            return {"success": True, "notification": new_notif, "message": "Notification resent."}
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+    # send or draft
+    status = "sent" if body.action == "send" else "drafted"
     notif = {
         "notification_id": str(uuid.uuid4())[:8],
-        "notification_type": body.notificationType or "general",
+        "notification_type": body.notificationType or "General Notice",
         "target_level": body.targetLevel,
         "target_user": body.targetUser,
         "related_spv_id": body.relatedSpvId,
         "related_deal_id": body.relatedDealId,
-        "message": body.message,
-        "status": body.action + ("ted" if body.action == "draf" else "ed") if body.action != "send" else "sent",
-        "admin": body.email,
+        "message_body": body.messageBody or "",
+        "admin_notes": body.adminNotes or "",
+        "notification_status": status,
+        "created_by": body.email,
         "sent_timestamp": datetime.utcnow().isoformat(),
     }
-    if body.action == "draft":
-        notif["status"] = "drafted"
-    elif body.action == "archive":
-        notif["status"] = "archived"
-    elif body.action in ("send", "resend"):
-        notif["status"] = "sent"
-    admin_notifications_store.append(notif)
-    logger.info(f"Admin notification: {notif}")
-    return {"success": True, "notification": notif}
+    notifications_col.insert_one(dict(notif))
+    return {"success": True, "notification": notif, "message": f"Notification {status}."}
 
 
 # ============= ORCHESTRATION ENDPOINTS =============

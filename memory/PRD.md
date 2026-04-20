@@ -118,6 +118,16 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - L2 users now see preview visibility with "Request Participation" on L1-released opportunities
 - L3 users see full visibility with "Manage Opportunity" on all opportunities
 
+### Phase 12: Persistent Storage + Enhanced Notifications (Complete — 2026-04-20)
+- MongoDB persistence for admin requests, notifications, and action logs (survives restarts)
+- Collections: admin_requests, admin_notifications, admin_actions
+- 12 canned notification templates: Deal Approved/Closed, Review Required, Capital Call Reminder, Document Uploaded, Request Approved/Denied, Participation Approved/Pending, Opportunity Released, Capacity Full, General Notice
+- Message builder with template selector, large text area (editable), separate admin notes field
+- Notification history as styled cards matching notification page aesthetic
+- Draft editing: click Edit on drafted notification to load it back into the composer
+- Actions: Send, Save Draft, Edit Draft, Resend, Archive
+- GET /api/admin/templates endpoint returns all canned templates
+
 ## Backlog
 
 ### P1: Persistent Orchestration State

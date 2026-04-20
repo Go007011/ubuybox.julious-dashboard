@@ -236,58 +236,190 @@ function UsersPanel({ data, onAction }: { data: any; onAction: (p: string, b: an
 
 function NotificationsPanel({ data, onAction }: { data: any; onAction: (p: string, b: any) => void }) {
   const notifs = data?.notifications || [];
-  const [form, setForm] = useState({ notificationType: 'general', targetLevel: '', targetUser: '', relatedSpvId: '', message: '' });
+  const [templates, setTemplates] = useState<Record<string, string>>({});
+  const [form, setForm] = useState({
+    notificationType: 'General Notice',
+    targetLevel: '',
+    targetUser: '',
+    relatedSpvId: '',
+    relatedDealId: '',
+    messageBody: '',
+    adminNotes: '',
+  });
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch('/admin/templates').then(d => setTemplates(d.templates || {})).catch(() => {});
+  }, []);
+
+  const selectTemplate = (type: string) => {
+    setForm({ ...form, notificationType: type, messageBody: templates[type] || '' });
+  };
+
+  const handleSend = () => {
+    if (editingId) {
+      onAction('/admin/notifications/action', { action: 'edit', notificationId: editingId, ...form });
+      setEditingId(null);
+    } else {
+      onAction('/admin/notifications/action', { action: 'send', ...form });
+    }
+  };
+
+  const handleDraft = () => {
+    if (editingId) {
+      onAction('/admin/notifications/action', { action: 'edit', notificationId: editingId, ...form });
+      setEditingId(null);
+    } else {
+      onAction('/admin/notifications/action', { action: 'draft', ...form });
+    }
+  };
+
+  const startEdit = (n: any) => {
+    setEditingId(n.notification_id);
+    setForm({
+      notificationType: n.notification_type || 'General Notice',
+      targetLevel: n.target_level || '',
+      targetUser: n.target_user || '',
+      relatedSpvId: n.related_spv_id || '',
+      relatedDealId: n.related_deal_id || '',
+      messageBody: n.message_body || '',
+      adminNotes: n.admin_notes || '',
+    });
+  };
+
+  const typeStyles: Record<string, { bg: string; border: string; icon: string }> = {
+    'Deal Approved': { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: 'text-emerald-400' },
+    'Deal Closed': { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: 'text-emerald-400' },
+    'Request Approved': { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: 'text-emerald-400' },
+    'Participation Approved': { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: 'text-emerald-400' },
+    'Review Required': { bg: 'bg-amber-500/10', border: 'border-amber-500/30', icon: 'text-amber-400' },
+    'Capital Call Reminder': { bg: 'bg-amber-500/10', border: 'border-amber-500/30', icon: 'text-amber-400' },
+    'Participation Pending': { bg: 'bg-amber-500/10', border: 'border-amber-500/30', icon: 'text-amber-400' },
+    'Document Uploaded': { bg: 'bg-blue-500/10', border: 'border-blue-500/30', icon: 'text-blue-400' },
+    'Opportunity Released': { bg: 'bg-blue-500/10', border: 'border-blue-500/30', icon: 'text-blue-400' },
+    'Request Denied': { bg: 'bg-red-500/10', border: 'border-red-500/30', icon: 'text-red-400' },
+    'Capacity Full': { bg: 'bg-red-500/10', border: 'border-red-500/30', icon: 'text-red-400' },
+  };
+
+  const getStyle = (type: string) => typeStyles[type] || { bg: 'bg-slate-700/30', border: 'border-slate-600/30', icon: 'text-slate-400' };
 
   return (
     <div className="p-6 space-y-6">
-      {/* Send form */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-white">Send Notification</h3>
+      {/* Message Builder */}
+      <div className="space-y-4">
+        <h3 className="text-sm font-semibold text-white">{editingId ? 'Edit Draft' : 'Compose Notification'}</h3>
+
+        {/* Canned template selector */}
+        <div>
+          <p className="text-xs text-slate-500 mb-2">Template</p>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.keys(templates).map(t => (
+              <button key={t} onClick={() => selectTemplate(t)}
+                className={`px-2.5 py-1 text-xs rounded-lg border transition-base ${
+                  form.notificationType === t
+                    ? 'bg-orange-500/10 border-orange-500/30 text-orange-400'
+                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'
+                }`}
+              >{t}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Controls row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <select value={form.notificationType} onChange={e => setForm({...form, notificationType: e.target.value})} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white">
-            <option value="general">General</option><option value="opportunity">Opportunity</option><option value="status_update">Status Update</option><option value="approval">Approval</option>
-          </select>
           <select value={form.targetLevel} onChange={e => setForm({...form, targetLevel: e.target.value})} className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white">
             <option value="">All Levels</option><option value="LEVEL_1">Level 1</option><option value="LEVEL_2">Level 2</option><option value="LEVEL_3">Level 3</option>
           </select>
           <input value={form.targetUser} onChange={e => setForm({...form, targetUser: e.target.value})} placeholder="Target email (optional)" className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500" />
           <input value={form.relatedSpvId} onChange={e => setForm({...form, relatedSpvId: e.target.value})} placeholder="SPV ID (optional)" className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500" />
+          <input value={form.relatedDealId} onChange={e => setForm({...form, relatedDealId: e.target.value})} placeholder="Deal ID (optional)" className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500" />
         </div>
-        <input value={form.message} onChange={e => setForm({...form, message: e.target.value})} placeholder="Notification message..." className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500" />
+
+        {/* Message body */}
+        <textarea
+          value={form.messageBody}
+          onChange={e => setForm({...form, messageBody: e.target.value})}
+          rows={3}
+          placeholder="Notification message..."
+          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 resize-none"
+        />
+
+        {/* Admin notes */}
+        <input
+          value={form.adminNotes}
+          onChange={e => setForm({...form, adminNotes: e.target.value})}
+          placeholder="Internal admin notes (not shown to users)..."
+          className="w-full px-3 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-xs text-slate-400 placeholder-slate-600"
+        />
+
+        {/* Action buttons */}
         <div className="flex gap-2">
-          <ActionBtn label="Send" color="green" onClick={() => onAction('/admin/notifications/action', { action: 'send', ...form })} />
-          <ActionBtn label="Draft" color="slate" onClick={() => onAction('/admin/notifications/action', { action: 'draft', ...form })} />
+          <ActionBtn label={editingId ? "Update & Send" : "Send"} color="green" onClick={handleSend} />
+          <ActionBtn label={editingId ? "Update Draft" : "Save Draft"} color="slate" onClick={handleDraft} />
+          {editingId && <ActionBtn label="Cancel" color="red" onClick={() => { setEditingId(null); setForm({notificationType:'General Notice',targetLevel:'',targetUser:'',relatedSpvId:'',relatedDealId:'',messageBody:'',adminNotes:''}); }} />}
         </div>
       </div>
 
-      {/* History */}
+      {/* Notification cards */}
       {notifs.length > 0 ? (
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead><tr className="border-b border-slate-700/50">
-              {['ID','Type','Level','User','SPV','Status','Time','Actions'].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">{h}</th>)}
-            </tr></thead>
-            <tbody className="divide-y divide-slate-700/50">
-              {notifs.map((n: any, i: number) => (
-                <tr key={i} className="hover:bg-slate-800/30">
-                  <td className="px-4 py-3 text-xs text-slate-300 font-mono">{n.notification_id}</td>
-                  <td className="px-4 py-3 text-xs text-white">{n.notification_type}</td>
-                  <td className="px-4 py-3 text-xs text-slate-300">{n.target_level || 'All'}</td>
-                  <td className="px-4 py-3 text-xs text-slate-300">{n.target_user || 'All'}</td>
-                  <td className="px-4 py-3 text-xs text-slate-300">{n.related_spv_id || '-'}</td>
-                  <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-xs ${n.status === 'sent' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-500/10 text-slate-400'}`}>{n.status}</span></td>
-                  <td className="px-4 py-3 text-xs text-slate-500">{n.sent_timestamp?.slice(0,16)}</td>
-                  <td className="px-4 py-3 flex gap-1">
-                    <ActionBtn label="Resend" color="blue" onClick={() => onAction('/admin/notifications/action', { action: 'resend', notificationType: n.notification_type, targetLevel: n.target_level, targetUser: n.target_user, relatedSpvId: n.related_spv_id, message: n.message })} />
-                    <ActionBtn label="Archive" color="slate" onClick={() => onAction('/admin/notifications/action', { action: 'archive', notificationType: n.notification_type })} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-white">Notification History ({notifs.length})</h3>
+          {notifs.map((n: any) => {
+            const s = getStyle(n.notification_type);
+            const isDraft = n.notification_status === 'drafted';
+            const isArchived = n.notification_status === 'archived';
+            return (
+              <div key={n.notification_id}
+                className={`p-4 rounded-2xl border transition-base ${
+                  isArchived ? 'bg-slate-900/30 border-slate-800/30 opacity-50'
+                  : isDraft ? 'bg-slate-900/50 border-slate-700/50 border-dashed'
+                  : `${s.bg} ${s.border}`
+                }`}
+                data-testid={`notif-card-${n.notification_id}`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className={`p-2 rounded-xl ${s.bg} ${s.icon} flex-shrink-0`}>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="text-sm font-medium text-white">{n.notification_type}</h4>
+                          <span className={`px-2 py-0.5 rounded-full text-xs ${
+                            n.notification_status === 'sent' ? 'bg-emerald-500/10 text-emerald-400'
+                            : n.notification_status === 'drafted' ? 'bg-amber-500/10 text-amber-400'
+                            : 'bg-slate-500/10 text-slate-400'
+                          }`}>{n.notification_status}</span>
+                        </div>
+                        <p className="text-sm text-slate-300">{n.message_body}</p>
+                        <div className="flex flex-wrap gap-3 mt-2 text-xs text-slate-500">
+                          {n.target_level && <span>Level: {n.target_level}</span>}
+                          {n.target_user && <span>To: {n.target_user}</span>}
+                          {n.related_spv_id && <span>SPV: {n.related_spv_id}</span>}
+                          {n.related_deal_id && <span>Deal: {n.related_deal_id}</span>}
+                          <span>{n.sent_timestamp?.slice(0,16).replace('T',' ')}</span>
+                        </div>
+                        {n.admin_notes && (
+                          <p className="text-xs text-slate-600 mt-1 italic">Admin: {n.admin_notes}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0">
+                    {isDraft && <ActionBtn label="Edit" color="blue" onClick={() => startEdit(n)} />}
+                    {!isArchived && <ActionBtn label="Resend" color="blue" onClick={() => onAction('/admin/notifications/action', { action: 'resend', notificationId: n.notification_id })} />}
+                    {!isArchived && <ActionBtn label="Archive" color="slate" onClick={() => onAction('/admin/notifications/action', { action: 'archive', notificationId: n.notification_id })} />}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
-        <p className="text-sm text-slate-500 text-center py-4">No notifications sent yet</p>
+        <p className="text-sm text-slate-500 text-center py-4">No notifications yet</p>
       )}
     </div>
   );
