@@ -133,7 +133,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 </div>
               </div>
               <button
-                onClick={() => { clearAuthEmail(); window.location.replace('/'); }}
+                onClick={() => {
+                  localStorage.removeItem('ubuybox_user_email');
+                  sessionStorage.clear();
+                  window.location.replace(window.location.origin + '/');
+                }}
                 className="w-full flex items-center gap-2 px-4 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-800/60 rounded-lg transition-base"
                 data-testid="sign-out-button"
               >

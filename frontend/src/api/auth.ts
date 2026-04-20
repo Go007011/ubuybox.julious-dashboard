@@ -29,6 +29,7 @@ export function setAuthEmail(email: string): void {
 
 export function clearAuthEmail(): void {
   localStorage.removeItem(USER_EMAIL_KEY);
+  sessionStorage.removeItem(USER_EMAIL_KEY);
 }
 
 export function isAuthenticated(): boolean {
