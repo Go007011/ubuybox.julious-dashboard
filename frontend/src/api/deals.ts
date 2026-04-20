@@ -70,12 +70,13 @@ export interface ReleasedOpportunity {
   dealId: string;
   releaseToLevel: string;
   visibilityMode: string;
+  ctaLabel: string;
+  ctaState: string;
+  accessState: string;
   approvalRequired: boolean;
   capacityStatus: string;
   maxOrders: number;
   currentOrders: number;
-  accessState: string;
-  ctaState: string;
   notes: string;
   deal: Record<string, string>;
   capitalStack: Record<string, string>;

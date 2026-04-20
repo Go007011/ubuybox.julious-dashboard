@@ -114,15 +114,18 @@ function OpportunityCard({ opp, onRequest }: { opp: ReleasedOpportunity; onReque
         </div>
       )}
 
-      {/* CTA */}
-      {opp.ctaState === 'Available' && (
-        <button onClick={() => onRequest(opp.spvId, 'request_participation')} className="w-full px-3 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-medium rounded-lg hover:bg-emerald-500/20 transition-base" data-testid={`opp-request-${opp.spvId}`}>
-          Request Participation
-        </button>
-      )}
-      {opp.ctaState === 'Approval Required' && (
-        <button onClick={() => onRequest(opp.spvId, 'request_review')} className="w-full px-3 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm font-medium rounded-lg hover:bg-amber-500/20 transition-base" data-testid={`opp-request-${opp.spvId}`}>
-          Request Review
+      {/* CTA — uses per-viewer-level label and state */}
+      {(opp.ctaState === 'Available' || opp.ctaState === 'Approval Required') && opp.ctaLabel && (
+        <button
+          onClick={() => onRequest(opp.spvId, opp.ctaLabel.toLowerCase().includes('participation') ? 'request_participation' : opp.ctaLabel.toLowerCase().includes('manage') ? 'request_access' : 'request_review')}
+          className={`w-full px-3 py-2 text-sm font-medium rounded-lg transition-base ${
+            opp.ctaState === 'Available'
+              ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+              : 'bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20'
+          }`}
+          data-testid={`opp-request-${opp.spvId}`}
+        >
+          {opp.ctaLabel}
         </button>
       )}
       {opp.ctaState === 'Full' && (

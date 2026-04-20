@@ -1193,6 +1193,8 @@ async def get_user_dashboard(email: str):
         p_orders = []
 
     # --- Active released opportunities (Opportunity Release Control) ---
+    # Per-viewer-level columns: level_X_visibility, level_X_cta, level_X_access_state
+    level_key = level.lower()  # e.g. "level_1", "level_2", "level_3"
     released_opps = []
     for opp in opp_release_all:
         if opp.get("release_status", "").strip() != "Active":
@@ -1204,7 +1206,18 @@ async def get_user_dashboard(email: str):
 
         opp_spv = opp.get("spv_id", "").strip()
         opp_deal = opp.get("deal_id", "").strip()
-        vis_mode = opp.get("visibility_mode", "teaser").strip()
+
+        # Select per-viewer-level columns
+        viewer_vis = opp.get(f"{level_key}_visibility", "").strip()
+        viewer_cta = opp.get(f"{level_key}_cta", "").strip()
+        viewer_access = opp.get(f"{level_key}_access_state", "").strip()
+
+        # If viewer visibility is "hidden", skip this opportunity entirely
+        if viewer_vis == "hidden":
+            continue
+
+        # Fall back to shared columns if per-level columns are empty
+        vis_mode = viewer_vis or opp.get("visibility_mode", "teaser").strip()
 
         # Get deal data for this opportunity from Main Maps
         deal_rows = [r for r in main_maps_all if r.get("SPV_ID", "").strip() == opp_spv and r.get("Deal_ID", "").strip() == opp_deal]
@@ -1212,7 +1225,7 @@ async def get_user_dashboard(email: str):
         cap_rows = [r for r in cap_stack_all if r.get("SPV_ID", "").strip() == opp_spv]
         val_rows = [r for r in validation_all if r.get("SPV_ID", "").strip() == opp_spv]
 
-        # Apply masking based on visibility_mode (not user level — the release controls it)
+        # Apply masking based on viewer's resolved visibility
         deal_data = deal_rows[0] if deal_rows else {}
         if vis_mode == "full":
             masked_deal = mask_main_maps_l3(deal_data) if deal_data else {}
@@ -1229,30 +1242,38 @@ async def get_user_dashboard(email: str):
 
         max_orders = int(opp.get("max_orders_allowed", "0") or "0")
         cur_orders = int(opp.get("current_orders_count", "0") or "0")
-        access_state = opp.get("opportunity_access_state", "").strip()
         cap_status = opp.get("capacity_status", "").strip()
 
-        # Determine CTA state
+        # Use viewer-level access state; fall back to shared
+        access_state = viewer_access or opp.get("opportunity_access_state", "").strip()
+
+        # Determine CTA label from viewer-level column
+        cta_label = viewer_cta
+
+        # Determine CTA availability state
         if access_state == "Restricted" or cap_status == "Closed":
             cta_state = "Restricted"
         elif cap_status == "Full" or (max_orders > 0 and cur_orders >= max_orders):
             cta_state = "Full"
-        elif opp.get("approval_required", "").strip() == "Yes":
+        elif access_state == "Approval Required":
             cta_state = "Approval Required"
-        else:
+        elif access_state == "Available":
             cta_state = "Available"
+        else:
+            cta_state = access_state or "Available"
 
         released_opps.append({
             "spvId": opp_spv,
             "dealId": opp_deal,
             "releaseToLevel": release_level,
             "visibilityMode": vis_mode,
+            "ctaLabel": cta_label,
+            "ctaState": cta_state,
+            "accessState": access_state,
             "approvalRequired": opp.get("approval_required", "").strip() == "Yes",
             "capacityStatus": cap_status,
             "maxOrders": max_orders,
             "currentOrders": cur_orders,
-            "accessState": access_state,
-            "ctaState": cta_state,
             "notes": opp.get("notes", "").strip(),
             "deal": masked_deal,
             "capitalStack": masked_cap[0] if masked_cap else {},

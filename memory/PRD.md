@@ -110,6 +110,14 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Cleanly separated from partner-facing experience — no admin controls leak into user pages
 - Admin email uses synthetic LEVEL_3 record when not in Licensed Users sheet
 
+### Phase 11: Per-Viewer-Level Opportunity Rendering (Complete — 2026-04-20)
+- Backend reads level_X_visibility, level_X_cta, level_X_access_state columns from Opportunity Release Control
+- Each viewer gets their own visibility/CTA/access-state based on their license_level, not inherited from lower levels
+- visibility=hidden skips the opportunity entirely for that viewer level
+- CTA label rendered directly from sheet (e.g. "Request Review", "Request Participation", "Manage Opportunity")
+- L2 users now see preview visibility with "Request Participation" on L1-released opportunities
+- L3 users see full visibility with "Manage Opportunity" on all opportunities
+
 ## Backlog
 
 ### P1: Persistent Orchestration State
