@@ -90,6 +90,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         <nav className="p-4 space-y-1 flex-1 overflow-y-auto">
           {menuItems.map((item) => {
             const isActive = location.pathname === item.path;
+            // Hide Opportunity Intake for LEVEL_1
+            if (item.path === '/intake' && userInfo && userInfo.licenseLevel === 'LEVEL_1') return null;
             return (
               <Link
                 key={item.path}
