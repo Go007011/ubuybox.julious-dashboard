@@ -52,8 +52,29 @@ app.add_middleware(
 
 # Google Sheet configuration (source of truth)
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1EmXsM7W_ny28d4YRh8M3U7mOLO9uC5tjQKJF11Z7AeA")
-SHEET_NAME = "Sheet1"
 ACCESS_CONTROL_GID = "1056764769"
+
+# Sheet tab names
+SHEET_MAIN_MAPS = "Main Maps Offers"
+SHEET_SPV_REGISTRY = "SPV Registry"
+SHEET_CAPITAL_STACK = "Capital Stack"
+SHEET_WATERFALL = "Waterfall Engine"
+SHEET_DEAL_SUMMARY = "Deal Summary (UBuyBox View)"
+SHEET_VALIDATION = "Validation Engine"
+SHEET_ORDERS = "Orders"
+
+# Hard-masked fields — NEVER shown to any partner-facing user
+HARD_MASKED_FIELDS = {
+    "Property Address", "Property_Address", "Seller Name", "Agent Name",
+    "Agent Phone", "Agent Email"
+}
+
+# Interest/participation caps by license level
+CAPS = {
+    "LEVEL_1": {"max_active_requests": 1, "can_participate": False},
+    "LEVEL_2": {"max_active_requests": 3, "can_participate": True},
+    "LEVEL_3": {"max_active_requests": 10, "can_participate": True},
+}
 
 # Orchestration API Token
 ORCHESTRATION_API_TOKEN = os.environ.get(
@@ -252,6 +273,175 @@ def resolve_user_access(users: list[dict], email: str) -> Optional[dict]:
         if user["email"] == email_lower:
             return user
     return None
+
+
+async def fetch_sheet_tab(sheet_name: str) -> list[dict]:
+    """Fetch any named tab from the Google Sheet as list of dicts."""
+    import urllib.parse
+    encoded = urllib.parse.quote(sheet_name)
+    url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet={encoded}"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.get(url)
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to fetch sheet tab '{sheet_name}': {type(e).__name__}")
+            return []
+    reader = csv.DictReader(io.StringIO(response.text))
+    rows = []
+    for row in reader:
+        clean = {k: v.strip() for k, v in row.items() if k and k.strip()}
+        rows.append(clean)
+    return rows
+
+
+def filter_by_spv(rows: list[dict], spv_id: str) -> list[dict]:
+    """Filter rows to those matching the given SPV_ID."""
+    return [r for r in rows if r.get("SPV_ID", "").strip() == spv_id]
+
+
+def mask_main_maps_l1(row: dict) -> dict:
+    """LEVEL_1 view of Main Maps Offers — teaser only."""
+    return {
+        "Deal_ID": row.get("Deal_ID", ""),
+        "SPV_ID": row.get("SPV_ID", ""),
+        "State": row.get("State", ""),
+        "County": row.get("County", ""),
+        "Status": row.get("Status", ""),
+        "Partner_Updates": row.get("Partner Updates", ""),
+        "UNIT_SIZE": row.get("UNIT_SIZE", ""),
+        "TOTAL_UNITS": row.get("TOTAL_UNITS", ""),
+        "UNITS_SOLD": row.get("UNITS_SOLD", ""),
+        "Property_Type": row.get("Property_Type", ""),
+        "Target_Business_Use": row.get("Target_Business_Use", ""),
+    }
+
+
+def mask_main_maps_l2(row: dict) -> dict:
+    """LEVEL_2 view — adds financial fields, still masks address/seller."""
+    base = mask_main_maps_l1(row)
+    base.update({
+        "Purchase_Price": row.get("Purchase Price", ""),
+        "Monthly_Payment": row.get("Monthly Payment To Seller", ""),
+        "Seller_Carryback": row.get("Seller Carryback", ""),
+        "Open_Loan_Balance": row.get("Open Loan Balance", ""),
+        "TOTAL_CAPITAL_REQUIRED": row.get("TOTAL_CAPITAL_REQUIRED", ""),
+    })
+    return base
+
+
+def mask_main_maps_l3(row: dict) -> dict:
+    """LEVEL_3 view — full financial, still masks address/seller/agent."""
+    base = mask_main_maps_l2(row)
+    base.update({
+        "Agents_Commission": row.get("Agent's Commission", ""),
+        "Cash_At_Closing": row.get("Cash At Closing To Seller", ""),
+        "Net_Cash_To_Seller": row.get("Net Cash To Seller", ""),
+    })
+    return base
+
+
+def mask_spv_registry_l1(row: dict) -> dict:
+    return {
+        "Deal_ID": row.get("Deal_ID", ""),
+        "SPV_ID": row.get("SPV_ID", ""),
+        "State": row.get("State", ""),
+        "County": row.get("County", ""),
+        "Target_Business_Use": row.get("Target_Business_Use", ""),
+        "Status": row.get("Status", ""),
+    }
+
+
+def mask_spv_registry_l2(row: dict) -> dict:
+    base = mask_spv_registry_l1(row)
+    base.update({
+        "Purchase_Price": row.get("Purchase_Price", ""),
+        "TOTAL_CAPITAL_REQUIRED": row.get("TOTAL_CAPITAL_REQUIRED", ""),
+    })
+    return base
+
+
+def mask_capital_stack_l1(row: dict) -> dict:
+    return {
+        "Deal_ID": row.get("Deal_ID", ""),
+        "SPV_ID": row.get("SPV_ID", ""),
+        "Total_Capital": "Restricted",
+        "Senior_Amount": "Restricted",
+        "Mezz_Amount": "Restricted",
+        "Equity_Amount": "Restricted",
+        "Risk_Profile": "Restricted",
+    }
+
+
+def mask_capital_stack_l2(row: dict) -> dict:
+    return {
+        "Deal_ID": row.get("Deal_ID", ""),
+        "SPV_ID": row.get("SPV_ID", ""),
+        "Total_Capital": row.get("Total_Capital", ""),
+        "Senior_Amount": row.get("Senior_Amount", ""),
+        "Mezz_Amount": row.get("Mezz_Amount", ""),
+        "Equity_Amount": row.get("Equity_Amount", ""),
+        "Risk_Profile": row.get("Risk_Profile", ""),
+    }
+
+
+def mask_capital_stack_l3(row: dict) -> dict:
+    return {
+        "Deal_ID": row.get("Deal_ID", ""),
+        "SPV_ID": row.get("SPV_ID", ""),
+        "Total_Capital": row.get("Total_Capital", ""),
+        "Senior_Amount": row.get("Senior_Amount", ""),
+        "Senior_Return": row.get("Senior_Return", ""),
+        "Senior_Priority": row.get("Senior_Priority", ""),
+        "Mezz_Amount": row.get("Mezz_Amount", ""),
+        "Mezz_Return": row.get("Mezz_Return", ""),
+        "Mezz_Priority": row.get("Mezz_Priority", ""),
+        "Equity_Amount": row.get("Equity_Amount", ""),
+        "Equity_Return": row.get("Equity_Return", ""),
+        "Equity_Priority": row.get("Equity_Priority", ""),
+        "Risk_Profile": row.get("Risk_Profile", ""),
+    }
+
+
+def mask_deal_summary_l1(row: dict) -> dict:
+    return {
+        "Deal_ID": row.get("Deal_ID", ""),
+        "SPV_ID": row.get("SPV_ID", ""),
+        "Deal_Name": row.get("Deal_Name", ""),
+        "State": row.get("State", ""),
+        "Risk_Summary": row.get("Risk_Summary", ""),
+    }
+
+
+def mask_deal_summary_l2(row: dict) -> dict:
+    base = mask_deal_summary_l1(row)
+    base["Capital_Stack_Display"] = row.get("Capital_Stack_Display", "")
+    return base
+
+
+def mask_deal_summary_l3(row: dict) -> dict:
+    base = mask_deal_summary_l2(row)
+    base["Waterfall_Display"] = row.get("Waterfall_Display", "")
+    return base
+
+
+def mask_validation_l1(row: dict) -> dict:
+    return {
+        "SPV_ID": row.get("SPV_ID", ""),
+        "Overall_Status": row.get("Overall_Status", ""),
+    }
+
+
+def mask_validation_l2(row: dict) -> dict:
+    return {
+        "Deal_ID": row.get("Deal_ID", ""),
+        "SPV_ID": row.get("SPV_ID", ""),
+        "Tranche_Count_Check": row.get("Tranche_Count_Check", ""),
+        "Capital_Match_Check": row.get("Capital_Match_Check", ""),
+        "Waterfall_Check": row.get("Waterfall_Check", ""),
+        "Capital_Presence_Check": row.get("Capital_Presence_Check", ""),
+        "Overall_Status": row.get("Overall_Status", ""),
+    }
 
 
 def parse_number(value) -> float:
@@ -890,177 +1080,199 @@ async def get_dashboard():
 
 # ============= USER-SCOPED ENDPOINTS (Bolt auth context) =============
 
-@app.get("/api/user/resolve")
-async def resolve_user(email: str):
-    """
-    Resolve an authenticated user email to their assigned SPV.
-    Called by the frontend with the Bolt session email.
-    Returns: user record, assigned SPV, and license level.
-    """
+async def _resolve_and_validate(email: str) -> dict:
+    """Common auth resolution. Returns user dict or raises HTTPException."""
     if not email or not email.strip():
         raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "Email parameter is required"})
-    
     users = await fetch_access_control()
     user = resolve_user_access(users, email)
-    
     if not user:
-        raise HTTPException(status_code=404, detail={
-            "error": "user_not_found",
-            "message": f"No licensed user found for email: {email}"
-        })
-    
+        raise HTTPException(status_code=404, detail={"error": "user_not_found", "message": f"No licensed user found for email: {email}"})
     if user["status"] != "Active":
-        raise HTTPException(status_code=403, detail={
-            "error": "user_inactive",
-            "message": f"User account is not active (status: {user['status']})"
-        })
-    
+        raise HTTPException(status_code=403, detail={"error": "user_inactive", "message": f"User account is not active (status: {user['status']})"})
     if not user["assigned_spv_id"]:
-        raise HTTPException(status_code=403, detail={
-            "error": "no_spv_assigned",
-            "message": "No SPV assigned to this user"
-        })
-    
+        raise HTTPException(status_code=403, detail={"error": "no_spv_assigned", "message": "No SPV assigned to this user"})
+    return user
+
+
+@app.get("/api/user/resolve")
+async def resolve_user_endpoint(email: str):
+    user = await _resolve_and_validate(email)
+    level = user["license_level"]
+    caps = CAPS.get(level, CAPS["LEVEL_1"])
     return {
         "success": True,
         "email": user["email"],
         "ownerName": user["owner_name"],
-        "licenseLevel": user["license_level"],
+        "licenseLevel": level,
         "assignedSpvId": user["assigned_spv_id"],
         "accessType": user["access_type"],
-        "status": user["status"]
+        "status": user["status"],
+        "caps": caps,
     }
 
 
 @app.get("/api/user/dashboard")
 async def get_user_dashboard(email: str):
-    """
-    Get dashboard data scoped to the authenticated user's assigned SPV.
-    Replaces the global /api/dashboard for authenticated users.
-    """
-    if not email or not email.strip():
-        raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "Email parameter is required"})
-    
-    # Resolve user access
-    users = await fetch_access_control()
-    user = resolve_user_access(users, email)
-    
-    if not user or user["status"] != "Active" or not user["assigned_spv_id"]:
-        raise HTTPException(status_code=403, detail={
-            "error": "access_denied",
-            "message": "User not found, inactive, or no SPV assigned"
-        })
-    
+    """Full multi-sheet dashboard scoped to user's SPV, masked by license level."""
+    user = await _resolve_and_validate(email)
     spv_id = user["assigned_spv_id"]
-    
-    # Fetch all deals then filter to user's SPV
-    all_deals = await fetch_sheet_data()
-    spv_deals = [d for d in all_deals if d["spv"] == spv_id]
-    
-    if not spv_deals:
-        return {
-            "user": {
-                "email": user["email"],
-                "ownerName": user["owner_name"],
-                "licenseLevel": user["license_level"],
-                "assignedSpvId": spv_id
-            },
-            "totalDeals": 0,
-            "activeSPVs": 0,
-            "totalCapital": 0,
-            "avgMonthlyPayment": 0,
-            "statusCounts": {"Active": 0, "Pending": 0, "Locked": 0},
-            "recentDeals": []
-        }
-    
-    total_deals = len(spv_deals)
-    total_capital = sum(d["totalCapital"] for d in spv_deals)
-    total_payment = sum(d["payment"] for d in spv_deals)
-    avg_payment = total_payment / total_deals if total_deals > 0 else 0
-    
-    status_counts = {"Active": 0, "Pending": 0, "Locked": 0}
-    for deal in spv_deals:
-        status = deal["status"]
-        if status in status_counts:
-            status_counts[status] += 1
-    
-    clean_deals = [{k: v for k, v in d.items() if k != "_raw"} for d in spv_deals]
-    
+    level = user["license_level"]
+
+    # Fetch all tabs in parallel-ish (sequential but fast)
+    main_maps_raw = filter_by_spv(await fetch_sheet_tab(SHEET_MAIN_MAPS), spv_id)
+    spv_reg_raw = filter_by_spv(await fetch_sheet_tab(SHEET_SPV_REGISTRY), spv_id)
+    cap_stack_raw = filter_by_spv(await fetch_sheet_tab(SHEET_CAPITAL_STACK), spv_id)
+    waterfall_raw = filter_by_spv(await fetch_sheet_tab(SHEET_WATERFALL), spv_id)
+    deal_sum_raw = filter_by_spv(await fetch_sheet_tab(SHEET_DEAL_SUMMARY), spv_id)
+    validation_raw = filter_by_spv(await fetch_sheet_tab(SHEET_VALIDATION), spv_id)
+    orders_raw = filter_by_spv(await fetch_sheet_tab(SHEET_ORDERS), spv_id)
+
+    # Apply masking per level
+    if level == "LEVEL_3":
+        main_maps = [mask_main_maps_l3(r) for r in main_maps_raw]
+        spv_registry = [mask_spv_registry_l2(r) for r in spv_reg_raw]
+        capital_stack = [mask_capital_stack_l3(r) for r in cap_stack_raw]
+        waterfall = [{"Deal_ID": r.get("Deal_ID",""), "SPV_ID": r.get("SPV_ID",""), "Step_Order": r.get("Step_Order",""), "Tranche": r.get("Tranche",""), "Description": r.get("Description","")} for r in waterfall_raw]
+        deal_summary = [mask_deal_summary_l3(r) for r in deal_sum_raw]
+        validation = [mask_validation_l2(r) for r in validation_raw]
+        # L3 can see order records for their SPV
+        orders = [{"Order_ID": r.get("Order_ID",""), "SPV_ID": r.get("SPV_ID",""), "Units_Bought": r.get("Units_Bought",""), "Unit_Size": r.get("Unit_Size",""), "Total_Investment": r.get("Total_Investment",""), "Ownership_Percent": r.get("Ownership_Percent",""), "Payment_Status": r.get("Payment_Status",""), "Buyer_Level": r.get("Buyer_Level","")} for r in orders_raw]
+    elif level == "LEVEL_2":
+        main_maps = [mask_main_maps_l2(r) for r in main_maps_raw]
+        spv_registry = [mask_spv_registry_l2(r) for r in spv_reg_raw]
+        capital_stack = [mask_capital_stack_l2(r) for r in cap_stack_raw]
+        waterfall = [{"SPV_ID": spv_id, "summary": "Waterfall summary available at Level 3"}]
+        deal_summary = [mask_deal_summary_l2(r) for r in deal_sum_raw]
+        validation = [mask_validation_l2(r) for r in validation_raw]
+        orders = []
+    else:
+        main_maps = [mask_main_maps_l1(r) for r in main_maps_raw]
+        spv_registry = [mask_spv_registry_l1(r) for r in spv_reg_raw]
+        capital_stack = [mask_capital_stack_l1(r) for r in cap_stack_raw]
+        waterfall = []
+        deal_summary = [mask_deal_summary_l1(r) for r in deal_sum_raw]
+        validation = [mask_validation_l1(r) for r in validation_raw]
+        orders = []
+
+    # Compute dashboard stats from main maps
+    total_deals = len(main_maps)
+    total_units = sum(parse_number(r.get("TOTAL_UNITS", 0)) for r in main_maps_raw)
+    units_sold = sum(parse_number(r.get("UNITS_SOLD", 0)) for r in main_maps_raw)
+
+    # Caps
+    user_orders = [r for r in orders_raw if r.get("Partner_Email", "").strip().lower() == user["email"]]
+    active_orders = [r for r in user_orders if r.get("Payment_Status", "").strip() in ("Pending", "Active", "Completed")]
+    caps = CAPS.get(level, CAPS["LEVEL_1"])
+
     return {
         "user": {
             "email": user["email"],
             "ownerName": user["owner_name"],
-            "licenseLevel": user["license_level"],
-            "assignedSpvId": spv_id
+            "licenseLevel": level,
+            "assignedSpvId": spv_id,
+            "licenseId": user["license_id"],
         },
-        "totalDeals": total_deals,
-        "activeSPVs": 1,
-        "totalCapital": total_capital,
-        "avgMonthlyPayment": round(avg_payment, 2),
-        "statusCounts": status_counts,
-        "recentDeals": clean_deals
+        "stats": {
+            "totalDeals": total_deals,
+            "activeSPVs": 1,
+            "totalUnits": int(total_units),
+            "unitsSold": int(units_sold),
+        },
+        "mainMaps": main_maps,
+        "spvRegistry": spv_registry,
+        "capitalStack": capital_stack,
+        "waterfall": waterfall,
+        "dealSummary": deal_summary,
+        "validation": validation,
+        "orders": orders,
+        "caps": {
+            "maxActiveRequests": caps["max_active_requests"],
+            "canParticipate": caps["can_participate"],
+            "activeOrderCount": len(active_orders),
+            "capReached": len(active_orders) >= caps["max_active_requests"],
+        },
     }
 
 
+class RequestActionBody(BaseModel):
+    email: str = Field(..., description="Authenticated user email")
+    action: str = Field(..., description="Action type: request_review, request_participation, request_access")
+
+
+@app.post("/api/user/request-action")
+async def request_action(body: RequestActionBody):
+    """Controlled interest/participation request. Logs and enforces caps."""
+    user = await _resolve_and_validate(body.email)
+    spv_id = user["assigned_spv_id"]
+    level = user["license_level"]
+    caps = CAPS.get(level, CAPS["LEVEL_1"])
+
+    allowed_actions = ["request_review", "request_participation", "request_access"]
+    if body.action not in allowed_actions:
+        raise HTTPException(status_code=400, detail={"error": "invalid_action", "message": f"Action must be one of: {allowed_actions}"})
+
+    if body.action == "request_participation" and not caps["can_participate"]:
+        raise HTTPException(status_code=403, detail={
+            "error": "participation_not_allowed",
+            "message": "Your license level does not allow participation requests. Level 2+ required."
+        })
+
+    # Check order/request cap from Orders sheet
+    orders_raw = filter_by_spv(await fetch_sheet_tab(SHEET_ORDERS), spv_id)
+    user_orders = [r for r in orders_raw if r.get("Partner_Email", "").strip().lower() == user["email"]]
+    active_orders = [r for r in user_orders if r.get("Payment_Status", "").strip() in ("Pending", "Active", "Completed")]
+
+    if len(active_orders) >= caps["max_active_requests"]:
+        raise HTTPException(status_code=429, detail={
+            "error": "cap_reached",
+            "message": f"You have reached the maximum active requests ({caps['max_active_requests']}) for your license level."
+        })
+
+    # Log the request (in-memory for now — persistent storage is a backlog item)
+    request_record = {
+        "email": user["email"],
+        "license_id": user["license_id"],
+        "assigned_spv_id": spv_id,
+        "license_level": level,
+        "action": body.action,
+        "timestamp": datetime.utcnow().isoformat(),
+        "status": "pending_review",
+    }
+    logger.info(f"Request action logged: {request_record}")
+
+    return {
+        "success": True,
+        "request": request_record,
+        "message": f"Your {body.action.replace('_', ' ')} has been submitted for review.",
+    }
+
+
+# Legacy user-scoped endpoints (kept for backward compatibility)
 @app.get("/api/user/deals")
 async def get_user_deals(email: str):
-    """
-    Get deals scoped to the authenticated user's assigned SPV.
-    """
-    if not email or not email.strip():
-        raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "Email parameter is required"})
-    
-    users = await fetch_access_control()
-    user = resolve_user_access(users, email)
-    
-    if not user or user["status"] != "Active" or not user["assigned_spv_id"]:
-        raise HTTPException(status_code=403, detail={
-            "error": "access_denied",
-            "message": "User not found, inactive, or no SPV assigned"
-        })
-    
+    user = await _resolve_and_validate(email)
     spv_id = user["assigned_spv_id"]
-    all_deals = await fetch_sheet_data()
-    spv_deals = [d for d in all_deals if d["spv"] == spv_id]
-    clean_deals = [{k: v for k, v in d.items() if k != "_raw"} for d in spv_deals]
-    
-    return {"deals": clean_deals, "count": len(clean_deals), "spvId": spv_id}
+    level = user["license_level"]
+    main_maps_raw = filter_by_spv(await fetch_sheet_tab(SHEET_MAIN_MAPS), spv_id)
+    if level == "LEVEL_3":
+        return {"deals": [mask_main_maps_l3(r) for r in main_maps_raw], "count": len(main_maps_raw), "spvId": spv_id}
+    elif level == "LEVEL_2":
+        return {"deals": [mask_main_maps_l2(r) for r in main_maps_raw], "count": len(main_maps_raw), "spvId": spv_id}
+    return {"deals": [mask_main_maps_l1(r) for r in main_maps_raw], "count": len(main_maps_raw), "spvId": spv_id}
 
 
 @app.get("/api/user/spvs")
 async def get_user_spvs(email: str):
-    """
-    Get SPV data scoped to the authenticated user's assigned SPV.
-    """
-    if not email or not email.strip():
-        raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "Email parameter is required"})
-    
-    users = await fetch_access_control()
-    user = resolve_user_access(users, email)
-    
-    if not user or user["status"] != "Active" or not user["assigned_spv_id"]:
-        raise HTTPException(status_code=403, detail={
-            "error": "access_denied",
-            "message": "User not found, inactive, or no SPV assigned"
-        })
-    
+    user = await _resolve_and_validate(email)
     spv_id = user["assigned_spv_id"]
-    all_deals = await fetch_sheet_data()
-    spv_deals = [d for d in all_deals if d["spv"] == spv_id]
-    
-    if not spv_deals:
-        return {"spvs": [], "count": 0}
-    
-    spv_data = {
-        "id": spv_id,
-        "name": spv_id,
-        "deals": [d["deal"] for d in spv_deals],
-        "totalCapital": sum(d["totalCapital"] for d in spv_deals),
-        "dealCount": len(spv_deals),
-        "status": "Active"
-    }
-    
-    return {"spvs": [spv_data], "count": 1}
+    level = user["license_level"]
+    spv_reg_raw = filter_by_spv(await fetch_sheet_tab(SHEET_SPV_REGISTRY), spv_id)
+    if level in ("LEVEL_2", "LEVEL_3"):
+        masked = [mask_spv_registry_l2(r) for r in spv_reg_raw]
+    else:
+        masked = [mask_spv_registry_l1(r) for r in spv_reg_raw]
+    return {"spvs": masked, "count": len(masked)}
 
 
 # ============= ORCHESTRATION ENDPOINTS =============

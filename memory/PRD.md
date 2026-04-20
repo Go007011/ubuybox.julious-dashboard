@@ -81,6 +81,17 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Frontend uses `licenseToVisibility()` mapper from Licensed Users sheet license_level field
 - No UI redesign — same layout, just content gated by level
 
+### Phase 8: Full Multi-Sheet Visibility + Access Control + Caps (Complete — 2026-04-20)
+- Backend reads ALL 8 Google Sheet tabs: Licensed Users, Main Maps Offers, SPV Registry, Capital Stack, Waterfall Engine, Deal Summary, Validation Engine, Orders
+- Single `/api/user/dashboard` endpoint returns all tab data filtered by user's SPV and masked by license_level
+- Hard masking: Property Address, Seller Name, Agent Name/Phone/Email NEVER shown to any partner-facing level
+- LEVEL_1 (teaser): Deal ID, SPV ID, State, County, Status, Partner Updates, Units, Property Type, Business Use, Deal Summary (name/risk only), Validation (Overall_Status only), Capital Stack shows "Restricted"
+- LEVEL_2 (preview): + Purchase Price, Monthly Payment, Seller Carryback, Open Loan Balance, Total Capital, Capital Stack amounts + risk, full Validation, waterfall summary only
+- LEVEL_3 (full): + Capital Stack returns/priorities, full Waterfall Engine steps, Deal Summary waterfall display, Order records
+- Controlled request actions: Request Review, Request Participation, Request Access — logged with email, license_id, SPV, timestamp
+- Cap enforcement: LEVEL_1 max 1 active request (no participation), LEVEL_2 max 3, LEVEL_3 max 10
+- All pages updated: Dashboard, Capital Stack, SPV Registry, Waterfalls, HoldCo Summary, Documents
+
 ## Backlog
 
 ### P1: Persistent Orchestration State

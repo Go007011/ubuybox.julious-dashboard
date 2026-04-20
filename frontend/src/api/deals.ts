@@ -55,6 +55,27 @@ export interface UserInfo {
   ownerName: string;
   licenseLevel: string;
   assignedSpvId: string;
+  licenseId?: string;
+}
+
+export interface CapsInfo {
+  maxActiveRequests: number;
+  canParticipate: boolean;
+  activeOrderCount: number;
+  capReached: boolean;
+}
+
+export interface FullDashboardData {
+  user: UserInfo;
+  stats: { totalDeals: number; activeSPVs: number; totalUnits: number; unitsSold: number };
+  mainMaps: Record<string, string>[];
+  spvRegistry: Record<string, string>[];
+  capitalStack: Record<string, string>[];
+  waterfall: Record<string, string>[];
+  dealSummary: Record<string, string>[];
+  validation: Record<string, string>[];
+  orders: Record<string, string>[];
+  caps: CapsInfo;
 }
 
 // Map license_level from Licensed Users sheet to visibility state
@@ -75,6 +96,35 @@ export function licenseAllowsWaterfall(licenseLevel: string): boolean {
 
 export interface UserDashboardData extends DashboardData {
   user: UserInfo;
+}
+
+// Fetch the full multi-sheet dashboard (new primary endpoint)
+export async function fetchFullDashboard(): Promise<FullDashboardData> {
+  const email = getAuthEmail();
+  if (!email) throw new Error('Not authenticated');
+  const response = await fetch(`${API_BASE}/user/dashboard?email=${encodeURIComponent(email)}`);
+  if (!response.ok) {
+    if (response.status === 403) throw new Error('Access denied');
+    if (response.status === 404) throw new Error('User not found');
+    throw new Error('Failed to fetch dashboard data');
+  }
+  return response.json();
+}
+
+// Submit a controlled request action
+export async function submitRequestAction(action: string): Promise<{ success: boolean; message: string }> {
+  const email = getAuthEmail();
+  if (!email) throw new Error('Not authenticated');
+  const response = await fetch(`${API_BASE}/user/request-action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, action }),
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.message || err.detail?.message || 'Request failed');
+  }
+  return response.json();
 }
 
 // Resolve authenticated user from Bolt session email
