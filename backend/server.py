@@ -1458,6 +1458,216 @@ async def get_user_notifications(email: str):
     return {"notifications": result, "count": len(result)}
 
 
+# ============= BOLT ACCESS ROUTING LAYER =============
+# Supabase is the secure structured access-decision source.
+# If Supabase credentials are configured, use them. Otherwise fall back to
+# Licensed Users sheet (Google Sheets remains source of truth that feeds Supabase).
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+SUPABASE_ENABLED = bool(SUPABASE_URL and SUPABASE_SERVICE_KEY)
+
+if SUPABASE_ENABLED:
+    logger.info("Supabase access layer enabled")
+else:
+    logger.info("Supabase not configured — using Licensed Users sheet as access source")
+
+
+async def supabase_lookup_user(email: str) -> Optional[dict]:
+    """
+    Look up user access state in Supabase licensed_users view.
+    Returns user record or None.
+    """
+    if not SUPABASE_ENABLED:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Query Supabase REST API — licensed_users view
+            resp = await client.get(
+                f"{SUPABASE_URL}/rest/v1/licensed_users",
+                params={"email": f"eq.{email.strip().lower()}", "select": "*", "limit": "1"},
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Accept": "application/json",
+                },
+            )
+            if resp.status_code == 200:
+                rows = resp.json()
+                if rows and len(rows) > 0:
+                    return rows[0]
+    except Exception as e:
+        logger.warning(f"Supabase lookup failed for {email}: {e}")
+    return None
+
+
+async def resolve_access_state(email: str) -> dict:
+    """
+    Resolve a user's access state for Bolt routing decisions.
+    Priority: Supabase → Licensed Users sheet → not found.
+    
+    Returns:
+      access_state: unauthenticated | no_license | pending | denied | approved | admin
+      license_level: LEVEL_1 | LEVEL_2 | LEVEL_3
+      assigned_spv_id: str
+      dashboard_route: /access/pending | /access/denied | /enter-dashboard
+    """
+    if not email or not email.strip():
+        return {
+            "accessState": "unauthenticated",
+            "dashboardRoute": None,
+            "reason": "No email provided",
+        }
+
+    email_lower = email.strip().lower()
+    admin_email = ADMIN_EMAIL
+
+    # Try Supabase first
+    user = await supabase_lookup_user(email_lower)
+    source = "supabase"
+
+    # Fall back to Licensed Users sheet
+    if not user:
+        try:
+            users = await fetch_access_control()
+            sheet_user = resolve_user_access(users, email_lower)
+            if sheet_user:
+                user = sheet_user
+                source = "licensed_users_sheet"
+        except Exception:
+            pass
+
+    # Admin check
+    if email_lower == admin_email:
+        if user:
+            return {
+                "accessState": "admin",
+                "email": email_lower,
+                "ownerName": user.get("owner_name", "Admin"),
+                "licenseLevel": user.get("license_level", "LEVEL_3"),
+                "assignedSpvId": user.get("assigned_spv_id", ""),
+                "dashboardRoute": "/enter-dashboard",
+                "source": source,
+            }
+        return {
+            "accessState": "admin",
+            "email": email_lower,
+            "ownerName": "Admin",
+            "licenseLevel": "LEVEL_3",
+            "assignedSpvId": "",
+            "dashboardRoute": "/enter-dashboard",
+            "source": "admin_bypass",
+        }
+
+    # Not found
+    if not user:
+        return {
+            "accessState": "no_license",
+            "email": email_lower,
+            "dashboardRoute": None,
+            "reason": "No licensed user record found",
+        }
+
+    status = user.get("status", "").strip()
+    license_level = user.get("license_level", "").strip()
+    spv_id = user.get("assigned_spv_id", "").strip()
+
+    # Pending
+    if status.lower() in ("pending", "review", "pending_review"):
+        return {
+            "accessState": "pending",
+            "email": email_lower,
+            "dashboardRoute": "/access/pending",
+            "source": source,
+        }
+
+    # Denied / suspended / inactive
+    if status.lower() in ("denied", "suspended", "inactive", "blocked"):
+        return {
+            "accessState": "denied",
+            "email": email_lower,
+            "dashboardRoute": "/access/denied",
+            "reason": f"Account status: {status}",
+            "source": source,
+        }
+
+    # Active / approved
+    if status.lower() in ("active", "approved"):
+        if not license_level:
+            return {
+                "accessState": "pending",
+                "email": email_lower,
+                "dashboardRoute": "/access/pending",
+                "reason": "Active but no license level assigned",
+                "source": source,
+            }
+        return {
+            "accessState": "approved",
+            "email": email_lower,
+            "ownerName": user.get("owner_name", ""),
+            "licenseLevel": license_level,
+            "assignedSpvId": spv_id,
+            "dashboardRoute": "/enter-dashboard",
+            "source": source,
+        }
+
+    # Unknown status
+    return {
+        "accessState": "pending",
+        "email": email_lower,
+        "dashboardRoute": "/access/pending",
+        "reason": f"Unrecognized status: {status}",
+        "source": source,
+    }
+
+
+@app.get("/api/access/resolve")
+async def access_resolve(email: str):
+    """
+    Bolt calls this to resolve a user's access state before routing.
+    Returns the access decision and the target dashboard route.
+    """
+    result = await resolve_access_state(email)
+    return result
+
+
+@app.get("/api/access/enter")
+async def access_enter(email: str, state: Optional[str] = None):
+    """
+    Entry point for Bolt redirect handoff.
+    Validates the user's access state and returns the dashboard configuration.
+    """
+    result = await resolve_access_state(email)
+    access = result.get("accessState")
+
+    if access in ("unauthenticated", "no_license"):
+        raise HTTPException(status_code=401, detail={
+            "error": "no_access",
+            "accessState": access,
+            "message": result.get("reason", "Access not granted"),
+        })
+
+    if access in ("pending", "denied"):
+        return {
+            "accessGranted": False,
+            "accessState": access,
+            "redirectTo": result.get("dashboardRoute"),
+            "message": result.get("reason", ""),
+        }
+
+    # approved or admin
+    return {
+        "accessGranted": True,
+        "accessState": access,
+        "email": result.get("email"),
+        "ownerName": result.get("ownerName", ""),
+        "licenseLevel": result.get("licenseLevel", ""),
+        "assignedSpvId": result.get("assignedSpvId", ""),
+        "dashboardRoute": "/enter-dashboard",
+        "isAdmin": access == "admin",
+    }
+
+
 # ============= ADMIN CONTROL LAYER =============
 # Persistent storage via MongoDB (requests_col, notifications_col, admin_actions_col)
 

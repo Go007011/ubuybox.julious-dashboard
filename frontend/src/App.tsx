@@ -10,6 +10,9 @@ import Documents from './pages/Documents';
 import Notifications from './pages/Notifications';
 import DealDetail from './pages/DealDetail';
 import AdminControl from './pages/AdminControl';
+import EnterDashboard from './pages/EnterDashboard';
+import AccessPending from './pages/AccessPending';
+import AccessDenied from './pages/AccessDenied';
 import './index.css';
 
 export default function App() {
@@ -17,6 +20,9 @@ export default function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/enter-dashboard" element={<EnterDashboard />} />
+        <Route path="/access/pending" element={<AccessPending />} />
+        <Route path="/access/denied" element={<AccessDenied />} />
         <Route path="/intake" element={<OpportunityIntake />} />
         <Route path="/capital" element={<CapitalStack />} />
         <Route path="/spv" element={<SPVRegistry />} />

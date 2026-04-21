@@ -137,6 +137,17 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Empty state: "No notifications at this time."
 - Card layout matches admin panel style with type-colored icons and relative timestamps
 
+### Phase 14: Bolt Access Routing Layer + Supabase Integration Points (Complete — 2026-04-21)
+- `/enter-dashboard?email=` — single Bolt handoff entry route; validates access, sets session, redirects to dashboard
+- `/access/pending` — shown when user status is pending/review
+- `/access/denied` — shown when user is denied/suspended/inactive
+- Backend: `GET /api/access/resolve` — returns full access decision (accessState, dashboardRoute, licenseLevel, assignedSpvId)
+- Backend: `GET /api/access/enter` — validates and returns dashboard config for Bolt redirect
+- Supabase integration points ready (SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY env vars)
+- When Supabase is configured, `supabase_lookup_user()` queries `licensed_users` view first; falls back to Google Sheets
+- Access states: unauthenticated → 401, no_license → 401, pending → /access/pending, denied → /access/denied, approved → /enter-dashboard, admin → /enter-dashboard with isAdmin=true
+- Google Sheets remains source of truth feeding Supabase; Supabase is the structured access layer
+
 ## Backlog
 
 ### P1: Persistent Orchestration State
