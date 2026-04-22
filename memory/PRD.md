@@ -174,6 +174,16 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Admin diagnostics include "Seller-Forward Maps Offers" mapping-issue warning (admin-only, never exposed to regular users)
 - Verified: admin can rename/disable/enable/reorder/add/delete; L1/L2 cannot access the page (access-denied card); Deal Summary and Tranche Breakdown still visible to L3
 
+### Phase 18: Supabase Safe Views Integration (Complete — 2026-04-22)
+- New module `/app/backend/supabase_reader.py` with VIEW_MAP (17 entries), `fetch_view`, `try_supabase_view`, `log_fallback`, `status_snapshot`
+- SQL migration authored at `/app/supabase/migrations/001_safe_views.sql` defining v_main_maps_l1/l2/l3, v_spv_registry_l1/l2, v_capital_stack_l1/l2/l3, v_waterfall_l3, v_deal_summary_l1/l2/l3, v_tranche_breakdown_l3, v_validation_l1/l2, v_opportunity_release_admin — all excluding exact address / seller PII / agent PII / internal compliance fields
+- Migrated backend endpoints to Supabase-first reads: `/api/user/deals`, `/api/user/spvs`, `/api/user/deal-summary`, `/api/user/tranche-breakdown` — each returns `source: "supabase"|"sheet"` for transparency
+- MongoDB `supabase_fallback_log` collection records every fallback event (area, level, reason, timestamp)
+- New admin-only endpoint `GET /api/admin/supabase-status` exposing config + recent fallbacks + aggregated summary
+- Fallback semantics: Supabase disabled OR view unmapped OR fetch failed → falls through to existing sheet path + Python masking; response shape preserved so frontend is unchanged
+- Dashboard endpoint `/api/user/dashboard` intentionally left on sheet reads this phase: its per-opportunity cross-join logic requires raw rows that will migrate to a materialized view later
+- Verified: SUPABASE_ENABLED=False in env → all endpoints return source="sheet"; response shapes identical to pre-migration; L1/L2/L3 filtering unchanged; admin cannot see owner-only CTAs
+
 ## Backlog
 
 ### P1: Persistent Orchestration State

@@ -100,8 +100,18 @@ requests_col = db["admin_requests"]
 notifications_col = db["admin_notifications"]
 admin_actions_col = db["admin_actions"]
 menu_config_col = db["menu_config"]
+supabase_fallback_log_col = db["supabase_fallback_log"]
 
 logger.info("MongoDB connected for persistent admin storage")
+
+# Supabase safe-view reader — preferred read source for dashboard data.
+# Bolt controls access. Emergent controls data.
+from supabase_reader import (
+    try_supabase_view as _try_supabase_view,
+    status_snapshot as _supabase_status_snapshot,
+    SUPABASE_ENABLED as _SUPABASE_ENABLED,
+)
+logger.info(f"Supabase safe-view reader initialized (enabled={_SUPABASE_ENABLED})")
 
 
 # ============= VISIBILITY STATES =============
@@ -1453,28 +1463,52 @@ async def request_information(body: InfoRequestBody):
 # Legacy user-scoped endpoints (kept for backward compatibility)
 @app.get("/api/user/deals")
 async def get_user_deals(email: str):
+    """User-scoped deals. Reads Supabase v_main_maps_l{N} first; falls back to Sheets + Python mask."""
     user = await _resolve_and_validate(email)
     spv_id = user["assigned_spv_id"]
     level = user["license_level"]
+
+    supabase_rows, source = await _try_supabase_view(
+        area="main_maps",
+        level=level,
+        spv_id=spv_id,
+        fallback_log_collection=supabase_fallback_log_col,
+    )
+    if source == "supabase":
+        deals = supabase_rows or []
+        return {"deals": deals, "count": len(deals), "spvId": spv_id, "source": "supabase"}
+
     main_maps_raw = filter_by_spv(await fetch_sheet_tab(SHEET_MAIN_MAPS), spv_id)
     if level == "LEVEL_3":
-        return {"deals": [mask_main_maps_l3(r) for r in main_maps_raw], "count": len(main_maps_raw), "spvId": spv_id}
+        return {"deals": [mask_main_maps_l3(r) for r in main_maps_raw], "count": len(main_maps_raw), "spvId": spv_id, "source": "sheet"}
     elif level == "LEVEL_2":
-        return {"deals": [mask_main_maps_l2(r) for r in main_maps_raw], "count": len(main_maps_raw), "spvId": spv_id}
-    return {"deals": [mask_main_maps_l1(r) for r in main_maps_raw], "count": len(main_maps_raw), "spvId": spv_id}
+        return {"deals": [mask_main_maps_l2(r) for r in main_maps_raw], "count": len(main_maps_raw), "spvId": spv_id, "source": "sheet"}
+    return {"deals": [mask_main_maps_l1(r) for r in main_maps_raw], "count": len(main_maps_raw), "spvId": spv_id, "source": "sheet"}
 
 
 @app.get("/api/user/spvs")
 async def get_user_spvs(email: str):
+    """User-scoped SPV registry. Reads Supabase v_spv_registry_l{N} first; falls back to Sheets."""
     user = await _resolve_and_validate(email)
     spv_id = user["assigned_spv_id"]
     level = user["license_level"]
+
+    supabase_rows, source = await _try_supabase_view(
+        area="spv_registry",
+        level=level,
+        spv_id=spv_id,
+        fallback_log_collection=supabase_fallback_log_col,
+    )
+    if source == "supabase":
+        masked = supabase_rows or []
+        return {"spvs": masked, "count": len(masked), "source": "supabase"}
+
     spv_reg_raw = filter_by_spv(await fetch_sheet_tab(SHEET_SPV_REGISTRY), spv_id)
     if level in ("LEVEL_2", "LEVEL_3"):
         masked = [mask_spv_registry_l2(r) for r in spv_reg_raw]
     else:
         masked = [mask_spv_registry_l1(r) for r in spv_reg_raw]
-    return {"spvs": masked, "count": len(masked)}
+    return {"spvs": masked, "count": len(masked), "source": "sheet"}
 
 
 @app.get("/api/user/notifications")
@@ -1576,7 +1610,10 @@ async def get_user_notifications(email: str):
 
 @app.get("/api/user/deal-summary")
 async def get_deal_summary(email: str):
-    """Deal Summary page data — Level 3 only. Property_Address hard-masked."""
+    """Deal Summary page data — Level 3 only. Property_Address hard-masked.
+    Reads from Supabase safe view v_deal_summary_l3 when available, else
+    falls back to Google Sheets with Python-side masking.
+    """
     user = await _resolve_and_validate(email)
     level = user["license_level"]
     spv_id = user["assigned_spv_id"]
@@ -1585,12 +1622,22 @@ async def get_deal_summary(email: str):
     if level != "LEVEL_3" and not is_admin:
         raise HTTPException(status_code=403, detail={"error": "access_denied", "message": "Deal Summary requires Level 3 access."})
 
+    # Prefer Supabase safe view (already masked + level-scoped).
+    supabase_rows, source = await _try_supabase_view(
+        area="deal_summary",
+        level="LEVEL_3",
+        spv_id=None if is_admin else spv_id,
+        fallback_log_collection=supabase_fallback_log_col,
+    )
+    if source == "supabase":
+        result = [r for r in (supabase_rows or []) if any(v for v in r.values())]
+        return {"dealSummary": result, "count": len(result), "spvId": spv_id, "source": "supabase"}
+
+    # Fallback: Google Sheets + Python masking.
     rows = await fetch_sheet_tab(SHEET_DEAL_SUMMARY)
-    # Filter to user's SPV (admin sees all)
     if not is_admin:
         rows = filter_by_spv(rows, spv_id)
 
-    # Mask Property_Address, clean empty keys
     result = []
     for r in rows:
         entry = {
@@ -1605,12 +1652,15 @@ async def get_deal_summary(email: str):
         if any(v for v in entry.values()):
             result.append(entry)
 
-    return {"dealSummary": result, "count": len(result), "spvId": spv_id}
+    return {"dealSummary": result, "count": len(result), "spvId": spv_id, "source": "sheet"}
 
 
 @app.get("/api/user/tranche-breakdown")
 async def get_tranche_breakdown(email: str):
-    """Tranche Breakdown page data — Level 3 only."""
+    """Tranche Breakdown page data — Level 3 only.
+    Reads from Supabase safe view v_tranche_breakdown_l3 when available, else
+    falls back to Google Sheets.
+    """
     user = await _resolve_and_validate(email)
     level = user["license_level"]
     spv_id = user["assigned_spv_id"]
@@ -1618,6 +1668,16 @@ async def get_tranche_breakdown(email: str):
 
     if level != "LEVEL_3" and not is_admin:
         raise HTTPException(status_code=403, detail={"error": "access_denied", "message": "Tranche Breakdown requires Level 3 access."})
+
+    supabase_rows, source = await _try_supabase_view(
+        area="tranche_breakdown",
+        level="LEVEL_3",
+        spv_id=None if is_admin else spv_id,
+        fallback_log_collection=supabase_fallback_log_col,
+    )
+    if source == "supabase":
+        result = [r for r in (supabase_rows or []) if r.get("Tranche_Type")]
+        return {"tranches": result, "count": len(result), "spvId": spv_id, "source": "supabase"}
 
     rows = await fetch_sheet_tab(SHEET_TRANCHE)
     if not is_admin:
@@ -1637,7 +1697,7 @@ async def get_tranche_breakdown(email: str):
         if entry.get("Tranche_Type"):
             result.append(entry)
 
-    return {"tranches": result, "count": len(result), "spvId": spv_id}
+    return {"tranches": result, "count": len(result), "spvId": spv_id, "source": "sheet"}
 
 
 # ============= BOLT ACCESS ROUTING LAYER =============
@@ -1878,6 +1938,31 @@ def _require_admin(email: str):
 @app.get("/api/admin/check")
 async def admin_check(email: str):
     return {"isAdmin": email.strip().lower() == ADMIN_EMAIL}
+
+
+@app.get("/api/admin/supabase-status")
+async def admin_supabase_status(email: str):
+    """Operational health of the Supabase safe-view read layer.
+    Admin-only. Shows configuration state and recent fallback events."""
+    _require_admin(email)
+    recent = list(
+        supabase_fallback_log_col.find({}, {"_id": 0}).sort("timestamp", -1).limit(50)
+    )
+    # Group recent fallbacks by (area, level, reason) for an at-a-glance summary
+    summary: dict[str, int] = {}
+    for ev in recent:
+        key = f"{ev.get('area','?')}|{ev.get('level','?')}|{ev.get('reason','?')}"
+        summary[key] = summary.get(key, 0) + 1
+    summary_rows = [
+        {"area": k.split("|")[0], "level": k.split("|")[1], "reason": k.split("|")[2], "count": c}
+        for k, c in sorted(summary.items(), key=lambda x: -x[1])
+    ]
+    return {
+        "config": _supabase_status_snapshot(),
+        "recentFallbacks": recent,
+        "fallbackSummary": summary_rows,
+        "recentCount": len(recent),
+    }
 
 
 @app.get("/api/admin/templates")
