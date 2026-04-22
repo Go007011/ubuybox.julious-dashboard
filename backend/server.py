@@ -17,7 +17,7 @@ import uuid
 import httpx
 import secrets
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Literal, List
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from pymongo import MongoClient
@@ -1391,6 +1391,61 @@ async def request_action(body: RequestActionBody):
         "success": True,
         "request": request_record,
         "message": f"Your {body.action.replace('_', ' ')} has been submitted for review.",
+    }
+
+
+class InfoRequestBody(BaseModel):
+    email: str
+    spvId: str
+    dealId: str
+    dealName: Optional[str] = ""
+
+
+@app.post("/api/user/request-info")
+async def request_information(body: InfoRequestBody):
+    """Request Information on a specific opportunity card. Owner-blocked, cooldown-enforced."""
+    user = await _resolve_and_validate(body.email)
+
+    if not body.spvId or not body.dealId:
+        raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "spvId and dealId are required"})
+
+    # Block owners from requesting info on their own SPV
+    if body.spvId == user["assigned_spv_id"]:
+        raise HTTPException(status_code=403, detail={"error": "owner_blocked", "message": "Owners manage their own opportunities through Admin Control."})
+
+    # Cooldown: block duplicate for same user+deal within 60 seconds
+    cutoff = (datetime.utcnow() - timedelta(seconds=60)).isoformat()
+    recent = requests_col.find_one({
+        "requested_by_email": user["email"],
+        "spv_id": body.spvId,
+        "deal_id": body.dealId,
+        "request_type": "information_request",
+        "created_at": {"$gte": cutoff}
+    })
+    if recent:
+        raise HTTPException(status_code=429, detail={"error": "cooldown", "message": "You already submitted a request for this opportunity. Please wait before trying again."})
+
+    record = {
+        "request_id": str(uuid.uuid4())[:8],
+        "request_type": "information_request",
+        "requested_by_user_id": user.get("license_id", ""),
+        "requested_by_name": user.get("owner_name", ""),
+        "requested_by_email": user["email"],
+        "requester_level": user["license_level"],
+        "spv_id": body.spvId,
+        "deal_id": body.dealId,
+        "deal_name": body.dealName or "",
+        "owner_user_id": "",
+        "status": "pending",
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    requests_col.insert_one(dict(record))
+    logger.info(f"Information request: {record}")
+
+    return {
+        "success": True,
+        "message": "Your request has been sent for review.",
+        "requestId": record["request_id"],
     }
 
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import StatCard from '../components/StatCard';
-import { fetchFullDashboard, formatCurrency, submitRequestAction, type FullDashboardData, type ReleasedOpportunity } from '../api/deals';
+import { fetchFullDashboard, formatCurrency, submitRequestAction, requestInformation, type FullDashboardData, type ReleasedOpportunity } from '../api/deals';
 import { isAuthenticated } from '../api/auth';
 
 function BuildingIcon() {
@@ -36,7 +36,7 @@ function VisBadge({ mode }: { mode: string }) {
   return <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${styles[mode] || 'bg-slate-500/10 text-slate-400'}`}>{mode}</span>;
 }
 
-function OpportunityCard({ opp, onRequest }: { opp: ReleasedOpportunity; onRequest: (spvId: string, action: string) => void }) {
+function OpportunityCard({ opp, onRequest }: { opp: ReleasedOpportunity; onRequest: (spvId: string, dealId: string, dealName: string, action: string) => void }) {
   const d = opp.deal;
   const ds = opp.dealSummary;
   const cs = opp.capitalStack;
@@ -117,9 +117,13 @@ function OpportunityCard({ opp, onRequest }: { opp: ReleasedOpportunity; onReque
       {/* CTA — uses per-viewer-level label and state */}
       {(opp.ctaState === 'Available' || opp.ctaState === 'Approval Required') && opp.ctaLabel && (
         <button
-          onClick={() => onRequest(opp.spvId, opp.ctaLabel.toLowerCase().includes('participation') ? 'request_participation' : opp.ctaLabel.toLowerCase().includes('manage') ? 'request_access' : 'request_review')}
+          onClick={() => onRequest(opp.spvId, opp.dealId, ds.Deal_Name || opp.dealId, opp.ctaLabel)}
           className={`w-full px-3 py-2 text-sm font-medium rounded-lg transition-base ${
-            opp.ctaState === 'Available'
+            opp.ctaLabel === 'Request Information'
+              ? 'border border-[#ee4308]/30 text-[#ee4308] hover:bg-[#ee4308]/10'
+              : opp.ctaLabel === 'Manage Opportunity'
+              ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+              : opp.ctaState === 'Available'
               ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
               : 'bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20'
           }`}
@@ -158,10 +162,16 @@ export default function Dashboard() {
   const personalSummary = pc.dealSummary[0] || {};
   const personalValid = pc.validation[0] || {};
 
-  const handleRequest = async (spvId: string, action: string) => {
+  const handleRequest = async (spvId: string, dealId: string, dealName: string, ctaLabel: string) => {
     try {
-      const res = await submitRequestAction(action);
-      setRequestMsg(`${spvId}: ${res.message}`);
+      if (ctaLabel === 'Request Information') {
+        const res = await requestInformation(spvId, dealId, dealName);
+        setRequestMsg(res.message);
+      } else {
+        const action = ctaLabel.toLowerCase().includes('participation') ? 'request_participation' : ctaLabel.toLowerCase().includes('manage') ? 'request_access' : 'request_review';
+        const res = await submitRequestAction(action);
+        setRequestMsg(`${spvId}: ${res.message}`);
+      }
     } catch (e: any) { setRequestMsg(e.message); }
   };
 

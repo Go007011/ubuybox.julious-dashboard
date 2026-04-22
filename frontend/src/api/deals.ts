@@ -149,6 +149,22 @@ export async function submitRequestAction(action: string): Promise<{ success: bo
   return response.json();
 }
 
+// Request Information on a specific opportunity
+export async function requestInformation(spvId: string, dealId: string, dealName?: string): Promise<{ success: boolean; message: string }> {
+  const email = getAuthEmail();
+  if (!email) throw new Error('Not authenticated');
+  const response = await fetch(`${API_BASE}/user/request-info`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, spvId, dealId, dealName: dealName || '' }),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.message || data.detail?.message || 'Request failed');
+  }
+  return data;
+}
+
 // Resolve authenticated user from Bolt session email
 export async function resolveUser(): Promise<UserInfo | null> {
   const email = getAuthEmail();
