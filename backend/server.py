@@ -2470,6 +2470,225 @@ async def get_all_spv_visibility():
     }
 
 
+# ============= MENU MANAGER =============
+# Admin-controlled dynamic sidebar configuration.
+# Source of truth: MongoDB `menu_config` collection.
+# Frontend sidebar calls GET /api/menu?email=... to render (with safe fallback).
+
+DEFAULT_MENU_ITEMS = [
+    {"id": "dashboard",         "menu_label": "Dashboard",           "path": "/",                    "source_sheet_name": "Main Maps Offers",              "icon_name": "home",       "enabled": True, "allowed_levels": ["LEVEL_1", "LEVEL_2", "LEVEL_3"], "admin_only": False, "hidden_but_queryable": False, "sort_order": 1},
+    {"id": "intake",            "menu_label": "Opportunity Intake",  "path": "/intake",              "source_sheet_name": "Opportunity Release Control",   "icon_name": "plus",       "enabled": True, "allowed_levels": ["LEVEL_2", "LEVEL_3"],            "admin_only": False, "hidden_but_queryable": False, "sort_order": 2},
+    {"id": "capital",           "menu_label": "Capital Stack",       "path": "/capital",             "source_sheet_name": "Capital Stack",                 "icon_name": "stack",      "enabled": True, "allowed_levels": ["LEVEL_1", "LEVEL_2", "LEVEL_3"], "admin_only": False, "hidden_but_queryable": False, "sort_order": 3},
+    {"id": "spv",               "menu_label": "SPV Registry",        "path": "/spv",                 "source_sheet_name": "SPV Registry",                  "icon_name": "building",   "enabled": True, "allowed_levels": ["LEVEL_1", "LEVEL_2", "LEVEL_3"], "admin_only": False, "hidden_but_queryable": False, "sort_order": 4},
+    {"id": "waterfalls",        "menu_label": "Waterfalls",          "path": "/waterfalls",          "source_sheet_name": "Waterfall Engine",              "icon_name": "chart",      "enabled": True, "allowed_levels": ["LEVEL_1", "LEVEL_2", "LEVEL_3"], "admin_only": False, "hidden_but_queryable": False, "sort_order": 5},
+    {"id": "holdco",            "menu_label": "HoldCo Summary",      "path": "/holdco",              "source_sheet_name": "—",                             "icon_name": "doc",        "enabled": True, "allowed_levels": ["LEVEL_2", "LEVEL_3"],            "admin_only": False, "hidden_but_queryable": False, "sort_order": 6},
+    {"id": "documents",         "menu_label": "Documents",           "path": "/documents",           "source_sheet_name": "—",                             "icon_name": "file",       "enabled": True, "allowed_levels": ["LEVEL_1", "LEVEL_2", "LEVEL_3"], "admin_only": False, "hidden_but_queryable": False, "sort_order": 7},
+    {"id": "notifications",     "menu_label": "Notifications",       "path": "/notifications",       "source_sheet_name": "—",                             "icon_name": "bell",       "enabled": True, "allowed_levels": ["LEVEL_1", "LEVEL_2", "LEVEL_3"], "admin_only": False, "hidden_but_queryable": False, "sort_order": 8},
+    {"id": "deal-summary",      "menu_label": "Deal Summary",        "path": "/deal-summary",        "source_sheet_name": "Deal Summary (UBuyBox View)",   "icon_name": "doc-text",   "enabled": True, "allowed_levels": ["LEVEL_3"],                       "admin_only": False, "hidden_but_queryable": False, "sort_order": 9},
+    {"id": "tranche-breakdown", "menu_label": "Tranche Breakdown",   "path": "/tranche-breakdown",   "source_sheet_name": "Tranche Breakdown",             "icon_name": "bars",       "enabled": True, "allowed_levels": ["LEVEL_3"],                       "admin_only": False, "hidden_but_queryable": False, "sort_order": 10},
+    {"id": "admin",             "menu_label": "Admin Control",       "path": "/admin",               "source_sheet_name": "—",                             "icon_name": "cog",        "enabled": True, "allowed_levels": [],                                "admin_only": True,  "hidden_but_queryable": False, "sort_order": 11},
+    {"id": "menu-manager",      "menu_label": "Menu Manager",        "path": "/admin/menu-manager",  "source_sheet_name": "—",                             "icon_name": "sliders",    "enabled": True, "allowed_levels": [],                                "admin_only": True,  "hidden_but_queryable": False, "sort_order": 12},
+]
+
+# Sheets flagged with data-quality issues — surfaced only in admin diagnostics.
+MENU_DIAGNOSTICS = [
+    {
+        "source_sheet_name": "Seller-Forward Maps Offers",
+        "severity": "warning",
+        "code": "mapping_issue",
+        "title": "Mapping issue — source needs repair",
+        "message": "Row values are misaligned against headers in the source sheet. Do not use this tab for critical UI mapping until repaired.",
+    }
+]
+
+
+def _menu_doc_projection():
+    return {"_id": 0}
+
+
+def _normalize_menu_item(item: dict) -> dict:
+    """Ensure a menu document has all expected fields with safe defaults."""
+    return {
+        "id": str(item.get("id", "")).strip(),
+        "menu_label": str(item.get("menu_label", "")).strip(),
+        "path": str(item.get("path", "")).strip(),
+        "source_sheet_name": str(item.get("source_sheet_name", "—")).strip() or "—",
+        "icon_name": str(item.get("icon_name", "doc")).strip() or "doc",
+        "enabled": bool(item.get("enabled", True)),
+        "allowed_levels": [str(x).strip().upper() for x in (item.get("allowed_levels") or []) if str(x).strip()],
+        "admin_only": bool(item.get("admin_only", False)),
+        "hidden_but_queryable": bool(item.get("hidden_but_queryable", False)),
+        "sort_order": int(item.get("sort_order", 999)),
+        "created_at": item.get("created_at") or datetime.utcnow().isoformat(),
+        "updated_at": item.get("updated_at") or datetime.utcnow().isoformat(),
+    }
+
+
+def _seed_menu_if_empty():
+    try:
+        if menu_config_col.count_documents({}) == 0:
+            seeds = [_normalize_menu_item(item) for item in DEFAULT_MENU_ITEMS]
+            menu_config_col.insert_many(seeds)
+            logger.info(f"Seeded menu_config with {len(seeds)} default items")
+    except Exception as e:
+        logger.warning(f"menu_config seeding skipped: {type(e).__name__}")
+
+
+# Seed defaults on startup
+_seed_menu_if_empty()
+
+
+def _fetch_menu_items_sorted() -> list[dict]:
+    try:
+        return list(menu_config_col.find({}, _menu_doc_projection()).sort("sort_order", 1))
+    except Exception as e:
+        logger.warning(f"menu_config fetch failed, returning defaults: {type(e).__name__}")
+        return [_normalize_menu_item(item) for item in DEFAULT_MENU_ITEMS]
+
+
+def _user_can_see(item: dict, level: str, is_admin: bool) -> bool:
+    if not item.get("enabled", True):
+        return False
+    if item.get("hidden_but_queryable", False):
+        return False
+    if item.get("admin_only", False):
+        return is_admin
+    if is_admin:
+        return True
+    allowed = item.get("allowed_levels") or []
+    return level in allowed
+
+
+class MenuItemIn(BaseModel):
+    id: Optional[str] = None
+    menu_label: str
+    path: str
+    source_sheet_name: Optional[str] = "—"
+    icon_name: Optional[str] = "doc"
+    enabled: Optional[bool] = True
+    allowed_levels: Optional[List[str]] = []
+    admin_only: Optional[bool] = False
+    hidden_but_queryable: Optional[bool] = False
+    sort_order: Optional[int] = 999
+
+
+class MenuItemPatch(BaseModel):
+    menu_label: Optional[str] = None
+    path: Optional[str] = None
+    source_sheet_name: Optional[str] = None
+    icon_name: Optional[str] = None
+    enabled: Optional[bool] = None
+    allowed_levels: Optional[List[str]] = None
+    admin_only: Optional[bool] = None
+    hidden_but_queryable: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+class MenuReorderBody(BaseModel):
+    email: str
+    order: List[str] = Field(..., description="Ordered list of menu item ids")
+
+
+@app.get("/api/menu")
+async def get_user_menu(email: str):
+    """
+    Returns the sidebar menu visible to the given user, filtered by
+    license level, admin status, enabled flag, and hidden_but_queryable.
+    Safe fallback: if config fetch fails, DEFAULT_MENU_ITEMS is used.
+    """
+    email_lc = (email or "").strip().lower()
+    is_admin = bool(ADMIN_EMAIL) and email_lc == ADMIN_EMAIL
+    level = "LEVEL_1"
+    if email_lc:
+        try:
+            users = await fetch_access_control()
+            user = resolve_user_access(users, email_lc)
+            if user:
+                level = user.get("license_level") or "LEVEL_1"
+        except Exception:
+            pass
+
+    items = _fetch_menu_items_sorted()
+    visible = [it for it in items if _user_can_see(it, level, is_admin)]
+    return {"items": visible, "count": len(visible), "level": level, "isAdmin": is_admin}
+
+
+@app.get("/api/admin/menu")
+async def admin_get_menu(email: str):
+    _require_admin(email)
+    items = _fetch_menu_items_sorted()
+    return {"items": items, "count": len(items)}
+
+
+@app.get("/api/admin/menu/diagnostics")
+async def admin_get_menu_diagnostics(email: str):
+    _require_admin(email)
+    return {"diagnostics": MENU_DIAGNOSTICS, "count": len(MENU_DIAGNOSTICS)}
+
+
+@app.post("/api/admin/menu")
+async def admin_create_menu_item(item: MenuItemIn, email: str):
+    _require_admin(email)
+    if not item.menu_label or not item.path:
+        raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "menu_label and path are required"})
+    item_id = (item.id or item.path.strip("/").replace("/", "-") or str(uuid.uuid4())).strip()
+    if menu_config_col.count_documents({"id": item_id}) > 0:
+        raise HTTPException(status_code=409, detail={"error": "conflict", "message": f"Menu item id '{item_id}' already exists"})
+    doc = _normalize_menu_item({**item.model_dump(), "id": item_id})
+    menu_config_col.insert_one(doc)
+    doc.pop("_id", None)
+    return {"success": True, "item": doc}
+
+
+@app.patch("/api/admin/menu/{item_id}")
+async def admin_update_menu_item(item_id: str, patch: MenuItemPatch, email: str):
+    _require_admin(email)
+    existing = menu_config_col.find_one({"id": item_id}, _menu_doc_projection())
+    if not existing:
+        raise HTTPException(status_code=404, detail={"error": "not_found", "message": f"Menu item '{item_id}' not found"})
+    update_fields = {k: v for k, v in patch.model_dump(exclude_unset=True).items() if v is not None}
+    if "allowed_levels" in update_fields:
+        update_fields["allowed_levels"] = [str(x).strip().upper() for x in update_fields["allowed_levels"] if str(x).strip()]
+    update_fields["updated_at"] = datetime.utcnow().isoformat()
+    menu_config_col.update_one({"id": item_id}, {"$set": update_fields})
+    updated = menu_config_col.find_one({"id": item_id}, _menu_doc_projection())
+    return {"success": True, "item": updated}
+
+
+@app.delete("/api/admin/menu/{item_id}")
+async def admin_delete_menu_item(item_id: str, email: str):
+    _require_admin(email)
+    result = menu_config_col.delete_one({"id": item_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail={"error": "not_found", "message": f"Menu item '{item_id}' not found"})
+    return {"success": True, "deletedId": item_id}
+
+
+@app.post("/api/admin/menu/reorder")
+async def admin_reorder_menu(body: MenuReorderBody):
+    _require_admin(body.email)
+    if not body.order:
+        raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "order list is required"})
+    for idx, item_id in enumerate(body.order, start=1):
+        menu_config_col.update_one(
+            {"id": item_id},
+            {"$set": {"sort_order": idx, "updated_at": datetime.utcnow().isoformat()}}
+        )
+    items = _fetch_menu_items_sorted()
+    return {"success": True, "items": items}
+
+
+@app.post("/api/admin/menu/reset-defaults")
+async def admin_reset_menu_defaults(email: str):
+    """Restore the seeded default menu. Destructive — deletes all existing items."""
+    _require_admin(email)
+    menu_config_col.delete_many({})
+    seeds = [_normalize_menu_item(item) for item in DEFAULT_MENU_ITEMS]
+    menu_config_col.insert_many(seeds)
+    items = _fetch_menu_items_sorted()
+    return {"success": True, "items": items, "count": len(items)}
+
+
 # ============= ERROR HANDLERS =============
 
 @app.exception_handler(HTTPException)

@@ -164,6 +164,16 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Safe empty states for missing rows, malformed Amount values parsed defensively
 - Verified: L1 and L2 sidebar hides the links; direct URL access shows access-denied card
 
+### Phase 17: Admin-Controlled Dynamic Menu Manager (Complete — 2026-04-22)
+- MongoDB `menu_config` collection with fields: id, menu_label, path, source_sheet_name, icon_name, enabled, allowed_levels, admin_only, hidden_but_queryable, sort_order, created_at, updated_at
+- 12 default items seeded on startup (idempotent): Dashboard, Opportunity Intake, Capital Stack, SPV Registry, Waterfalls, HoldCo Summary, Documents, Notifications, Deal Summary, Tranche Breakdown, Admin Control, Menu Manager
+- Admin endpoints: GET/POST `/api/admin/menu`, PATCH/DELETE `/api/admin/menu/{id}`, POST `/api/admin/menu/reorder`, POST `/api/admin/menu/reset-defaults`, GET `/api/admin/menu/diagnostics`
+- Public endpoint: GET `/api/menu?email=...` returns level-filtered, admin-filtered, enabled-only, non-hidden items
+- Frontend page `/admin/menu-manager` (MenuManager.tsx) with three tabs: Menu Items (inline edit, toggles, level pills, reorder, delete, add), Diagnostics (admin-only), Live Preview (sidebar mirror)
+- Sidebar refactored to fetch from `/api/menu` with safe fallback to hardcoded FALLBACK_MENU if config unreachable
+- Admin diagnostics include "Seller-Forward Maps Offers" mapping-issue warning (admin-only, never exposed to regular users)
+- Verified: admin can rename/disable/enable/reorder/add/delete; L1/L2 cannot access the page (access-denied card); Deal Summary and Tranche Breakdown still visible to L3
+
 ## Backlog
 
 ### P1: Persistent Orchestration State

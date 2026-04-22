@@ -15,6 +15,7 @@ import AccessPending from './pages/AccessPending';
 import AccessDenied from './pages/AccessDenied';
 import DealSummary from './pages/DealSummary';
 import TrancheBreakdown from './pages/TrancheBreakdown';
+import MenuManager from './pages/MenuManager';
 import './index.css';
 
 export default function App() {
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/deal-summary" element={<DealSummary />} />
         <Route path="/tranche-breakdown" element={<TrancheBreakdown />} />
         <Route path="/admin" element={<AdminControl />} />
+        <Route path="/admin/menu-manager" element={<MenuManager />} />
       </Routes>
     </Layout>
   );
