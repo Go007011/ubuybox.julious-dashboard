@@ -1261,10 +1261,9 @@ async def get_user_dashboard(email: str):
         # Determine CTA label from viewer-level column
         cta_label = viewer_cta
 
-        # Owner restriction: "Manage Opportunity" only for owner or admin
+        # Owner restriction: "Manage Opportunity" only for actual owner
         is_owner = (opp_spv == spv_id)
-        is_admin_user = (email_lower == (ADMIN_EMAIL or ""))
-        if cta_label == "Manage Opportunity" and not is_owner and not is_admin_user:
+        if cta_label == "Manage Opportunity" and not is_owner:
             cta_label = "Request Information"
 
         # Determine CTA availability state
