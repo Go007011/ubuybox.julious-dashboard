@@ -65,6 +65,7 @@ SHEET_DEAL_SUMMARY = "Deal Summary (UBuyBox View)"
 SHEET_VALIDATION = "Validation Engine"
 SHEET_ORDERS = "Orders"
 SHEET_OPP_RELEASE = "Opportunity Release Control"
+SHEET_TRANCHE = "Tranche Breakdown"
 
 # Level hierarchy for release filtering
 LEVEL_HIERARCHY = {"LEVEL_1": 1, "LEVEL_2": 2, "LEVEL_3": 3}
@@ -1569,6 +1570,74 @@ async def get_user_notifications(email: str):
     result.sort(key=lambda x: x.get("sent_timestamp", ""), reverse=True)
 
     return {"notifications": result, "count": len(result)}
+
+
+# ============= LEVEL 3 PAGES =============
+
+@app.get("/api/user/deal-summary")
+async def get_deal_summary(email: str):
+    """Deal Summary page data — Level 3 only. Property_Address hard-masked."""
+    user = await _resolve_and_validate(email)
+    level = user["license_level"]
+    spv_id = user["assigned_spv_id"]
+    is_admin = user["email"] == (ADMIN_EMAIL or "")
+
+    if level != "LEVEL_3" and not is_admin:
+        raise HTTPException(status_code=403, detail={"error": "access_denied", "message": "Deal Summary requires Level 3 access."})
+
+    rows = await fetch_sheet_tab(SHEET_DEAL_SUMMARY)
+    # Filter to user's SPV (admin sees all)
+    if not is_admin:
+        rows = filter_by_spv(rows, spv_id)
+
+    # Mask Property_Address, clean empty keys
+    result = []
+    for r in rows:
+        entry = {
+            "Deal_ID": r.get("Deal_ID", ""),
+            "SPV_ID": r.get("SPV_ID", ""),
+            "Deal_Name": r.get("Deal_Name", ""),
+            "State": r.get("State", ""),
+            "Capital_Stack_Display": r.get("Capital_Stack_Display", ""),
+            "Waterfall_Display": r.get("Waterfall_Display", ""),
+            "Risk_Summary": r.get("Risk_Summary", ""),
+        }
+        if any(v for v in entry.values()):
+            result.append(entry)
+
+    return {"dealSummary": result, "count": len(result), "spvId": spv_id}
+
+
+@app.get("/api/user/tranche-breakdown")
+async def get_tranche_breakdown(email: str):
+    """Tranche Breakdown page data — Level 3 only."""
+    user = await _resolve_and_validate(email)
+    level = user["license_level"]
+    spv_id = user["assigned_spv_id"]
+    is_admin = user["email"] == (ADMIN_EMAIL or "")
+
+    if level != "LEVEL_3" and not is_admin:
+        raise HTTPException(status_code=403, detail={"error": "access_denied", "message": "Tranche Breakdown requires Level 3 access."})
+
+    rows = await fetch_sheet_tab(SHEET_TRANCHE)
+    if not is_admin:
+        rows = filter_by_spv(rows, spv_id)
+
+    result = []
+    for r in rows:
+        entry = {
+            "Deal_ID": r.get("Deal_ID", ""),
+            "SPV_ID": r.get("SPV_ID", ""),
+            "Tranche_Type": r.get("Tranche_Type", ""),
+            "Amount": r.get("Amount", ""),
+            "Return_Target": r.get("Return_Target", ""),
+            "Priority": r.get("Priority", ""),
+            "Risk_Level": r.get("Risk_Level", ""),
+        }
+        if entry.get("Tranche_Type"):
+            result.append(entry)
+
+    return {"tranches": result, "count": len(result), "spvId": spv_id}
 
 
 # ============= BOLT ACCESS ROUTING LAYER =============

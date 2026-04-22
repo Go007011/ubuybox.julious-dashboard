@@ -132,6 +132,45 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             );
           })}
 
+          {/* Level 3 — Operator Views */}
+          {(userInfo?.licenseLevel === 'LEVEL_3' || isAdmin) && (
+            <>
+              <div className="pt-4 pb-1 px-4">
+                <p className="text-[10px] uppercase tracking-wider text-slate-600 font-semibold">Level 3 · Operator</p>
+              </div>
+              {[
+                { name: 'Deal Summary', path: '/deal-summary', icon: 'M9 17v-2a4 4 0 014-4h4m-4-4V5a2 2 0 012-2h2a2 2 0 012 2v4m-6 4h6m-6 4h6M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2h-3l-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z' },
+                { name: 'Tranche Breakdown', path: '/tranche-breakdown', icon: 'M4 6h16M4 12h10M4 18h6' },
+              ].map((item) => {
+                const isActive = location.pathname === item.path;
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onClick={onClose}
+                    className={`
+                      flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-base group
+                      ${isActive
+                        ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'}
+                    `}
+                    data-testid={`nav-${item.path.replace('/', '')}`}
+                  >
+                    <svg
+                      className={`w-5 h-5 flex-shrink-0 ${isActive ? 'text-orange-500' : 'text-slate-500 group-hover:text-slate-300'}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
+                    </svg>
+                    <span className="truncate">{item.name}</span>
+                  </Link>
+                );
+              })}
+            </>
+          )}
+
           {/* Admin Control — only for verified admin */}
           {isAdmin && (
             <Link

@@ -13,6 +13,8 @@ import AdminControl from './pages/AdminControl';
 import EnterDashboard from './pages/EnterDashboard';
 import AccessPending from './pages/AccessPending';
 import AccessDenied from './pages/AccessDenied';
+import DealSummary from './pages/DealSummary';
+import TrancheBreakdown from './pages/TrancheBreakdown';
 import './index.css';
 
 export default function App() {
@@ -31,6 +33,8 @@ export default function App() {
         <Route path="/documents" element={<Documents />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/deal/:id" element={<DealDetail />} />
+        <Route path="/deal-summary" element={<DealSummary />} />
+        <Route path="/tranche-breakdown" element={<TrancheBreakdown />} />
         <Route path="/admin" element={<AdminControl />} />
       </Routes>
     </Layout>

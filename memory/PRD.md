@@ -155,6 +155,15 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - CTA override happens server-side before response — frontend renders dynamically
 - L2 users unaffected (their per-level CTA is "Request Participation", not "Manage Opportunity")
 
+### Phase 16: Level 3 Operator Views — Deal Summary & Tranche Breakdown (Complete — 2026-04-22)
+- Backend endpoints `/api/user/deal-summary` and `/api/user/tranche-breakdown` return hard-masked rows filtered by SPV (no address/seller/agent); return HTTP 403 for L1/L2
+- Frontend pages: `/deal-summary` (DealSummary.tsx) and `/tranche-breakdown` (TrancheBreakdown.tsx)
+- Deal Summary fields: Deal_Name, Deal_ID, SPV_ID, State, Capital_Stack_Display, Waterfall_Display, Risk_Summary
+- Tranche Breakdown fields: Deal_ID (group), Priority, Tranche_Type, Amount, Return_Target, Risk_Level — grouped by deal with priority sort and aggregate total
+- Sidebar renders a "LEVEL 3 · OPERATOR" section with Deal Summary and Tranche Breakdown links only for LEVEL_3 users or admin
+- Safe empty states for missing rows, malformed Amount values parsed defensively
+- Verified: L1 and L2 sidebar hides the links; direct URL access shows access-denied card
+
 ## Backlog
 
 ### P1: Persistent Orchestration State
