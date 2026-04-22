@@ -98,6 +98,7 @@ db = mongo_client[DB_NAME]
 requests_col = db["admin_requests"]
 notifications_col = db["admin_notifications"]
 admin_actions_col = db["admin_actions"]
+menu_config_col = db["menu_config"]
 
 logger.info("MongoDB connected for persistent admin storage")
 
@@ -1155,6 +1156,7 @@ async def get_user_dashboard(email: str):
     spv_id = user["assigned_spv_id"]
     level = user["license_level"]
     user_level_num = LEVEL_HIERARCHY.get(level, 1)
+    email_lower = user["email"]
 
     # Fetch tabs
     main_maps_all = await fetch_sheet_tab(SHEET_MAIN_MAPS)
@@ -1259,6 +1261,12 @@ async def get_user_dashboard(email: str):
         # Determine CTA label from viewer-level column
         cta_label = viewer_cta
 
+        # Owner restriction: "Manage Opportunity" only for owner or admin
+        is_owner = (opp_spv == spv_id)
+        is_admin_user = (email_lower == (ADMIN_EMAIL or ""))
+        if cta_label == "Manage Opportunity" and not is_owner and not is_admin_user:
+            cta_label = "Request Information"
+
         # Determine CTA availability state
         if access_state == "Restricted" or cap_status == "Closed":
             cta_state = "Restricted"
@@ -1279,6 +1287,7 @@ async def get_user_dashboard(email: str):
             "ctaLabel": cta_label,
             "ctaState": cta_state,
             "accessState": access_state,
+            "isOwner": is_owner,
             "approvalRequired": opp.get("approval_required", "").strip() == "Yes",
             "capacityStatus": cap_status,
             "maxOrders": max_orders,

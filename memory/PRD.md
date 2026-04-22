@@ -148,6 +148,13 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Access states: unauthenticated → 401, no_license → 401, pending → /access/pending, denied → /access/denied, approved → /enter-dashboard, admin → /enter-dashboard with isAdmin=true
 - Google Sheets remains source of truth feeding Supabase; Supabase is the structured access layer
 
+### Phase 15: Owner-Restricted CTA Button (Complete — 2026-04-22)
+- "Manage Opportunity" only shown to SPV owner or admin
+- All non-owners see "Request Information" instead
+- Backend adds `isOwner` field to each opportunity based on user's assigned_spv_id matching the opportunity's spv_id
+- CTA override happens server-side before response — frontend renders dynamically
+- L2 users unaffected (their per-level CTA is "Request Participation", not "Manage Opportunity")
+
 ## Backlog
 
 ### P1: Persistent Orchestration State
