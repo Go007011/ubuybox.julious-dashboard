@@ -13,6 +13,8 @@ interface Notification {
   related_deal_id: string | null;
   notification_status: string;
   sent_timestamp: string;
+  request_status?: string;
+  source?: string;
 }
 
 const typeStyles: Record<string, { bg: string; border: string; icon: string }> = {
@@ -29,8 +31,16 @@ const typeStyles: Record<string, { bg: string; border: string; icon: string }> =
   'Capacity Full': { bg: 'bg-red-500/10', border: 'border-red-500/20', icon: 'text-red-400' },
 };
 
-function getStyle(type: string) {
-  return typeStyles[type] || { bg: 'bg-slate-700/30', border: 'border-slate-600/30', icon: 'text-slate-400' };
+function getStyle(n: Notification) {
+  // Request-driven notifications use status-based coloring
+  if (n.source === 'request') {
+    const s = n.request_status || 'pending';
+    if (s === 'approved') return { bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', icon: 'text-emerald-400' };
+    if (s === 'denied') return { bg: 'bg-red-500/10', border: 'border-red-500/20', icon: 'text-red-400' };
+    if (s === 'escalated') return { bg: 'bg-amber-500/10', border: 'border-amber-500/20', icon: 'text-amber-400' };
+    return { bg: 'bg-[#ee4308]/10', border: 'border-[#ee4308]/20', icon: 'text-[#ee4308]' };
+  }
+  return typeStyles[n.notification_type] || { bg: 'bg-slate-700/30', border: 'border-slate-600/30', icon: 'text-slate-400' };
 }
 
 function timeAgo(ts: string): string {
@@ -69,7 +79,7 @@ export default function Notifications() {
           <svg className="w-16 h-16 text-slate-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
           </svg>
-          <p className="text-slate-400">No notifications at this time.</p>
+          <p className="text-slate-400">No notifications yet</p>
         </div>
       </div>
     );
@@ -84,7 +94,8 @@ export default function Notifications() {
 
       <div className="space-y-3">
         {notifications.map((n) => {
-          const s = getStyle(n.notification_type);
+          const s = getStyle(n);
+          const isRequest = n.source === 'request';
           return (
             <div key={n.notification_id}
               className={`p-4 rounded-2xl border transition-base ${s.bg} ${s.border}`}
@@ -92,20 +103,37 @@ export default function Notifications() {
             >
               <div className="flex items-start gap-3">
                 <div className={`p-2 rounded-xl ${s.bg} ${s.icon} flex-shrink-0`}>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                  </svg>
+                  {isRequest ? (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                    </svg>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-white">{n.notification_type}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-medium text-white">{n.notification_type}</h3>
+                      {isRequest && n.request_status && (
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                          n.request_status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' :
+                          n.request_status === 'denied' ? 'bg-red-500/10 text-red-400' :
+                          n.request_status === 'escalated' ? 'bg-amber-500/10 text-amber-400' :
+                          'bg-slate-500/10 text-slate-400'
+                        }`}>{n.request_status}</span>
+                      )}
+                    </div>
                     <span className="text-xs text-slate-500 flex-shrink-0">{timeAgo(n.sent_timestamp)}</span>
                   </div>
                   <p className="text-sm text-slate-300 mt-1">{n.message_body}</p>
-                  {(n.related_spv_id || n.related_deal_id) && (
-                    <div className="flex gap-3 mt-2">
+                  {(n.related_spv_id || n.related_deal_id || n.target_user) && (
+                    <div className="flex flex-wrap gap-3 mt-2">
                       {n.related_spv_id && <span className="text-xs text-slate-500">SPV: {n.related_spv_id}</span>}
                       {n.related_deal_id && <span className="text-xs text-slate-500">Deal: {n.related_deal_id}</span>}
+                      {n.target_user && <span className="text-xs text-slate-500">From: {n.target_user}</span>}
                     </div>
                   )}
                 </div>

@@ -1479,44 +1479,94 @@ async def get_user_spvs(email: str):
 @app.get("/api/user/notifications")
 async def get_user_notifications(email: str):
     """
-    User-facing notifications. Only returns admin-sent notifications
-    targeted to this user by email, level, SPV, or deal context.
-    Drafts and archived items are excluded. Admin notes are stripped.
+    User-facing notifications. Combines:
+    1. Admin-sent notifications targeted to this user
+    2. Request-driven notifications from admin_requests (information_request, etc.)
     """
     user = await _resolve_and_validate(email)
     level = user["license_level"]
     spv_id = user["assigned_spv_id"]
     user_email = user["email"]
+    is_admin = user_email == (ADMIN_EMAIL or "")
 
-    # Fetch all sent notifications
+    result = []
+
+    # 1. Admin-sent notifications (filtered by target)
     all_sent = list(notifications_col.find(
         {"notification_status": "sent"},
         {"_id": 0, "admin_notes": 0, "created_by": 0}
     ).sort("sent_timestamp", -1).limit(200))
 
-    # Filter to notifications intended for this user
-    result = []
     for n in all_sent:
         target_user = (n.get("target_user") or "").strip().lower()
         target_level = (n.get("target_level") or "").strip()
         related_spv = (n.get("related_spv_id") or "").strip()
 
-        # If target_user is set, must match exactly
-        if target_user and target_user != user_email:
+        if target_user and target_user != user_email and not is_admin:
             continue
-
-        # If target_level is set, user must be at or above that level
-        if target_level:
+        if target_level and not is_admin:
             target_num = LEVEL_HIERARCHY.get(target_level, 99)
             user_num = LEVEL_HIERARCHY.get(level, 0)
             if user_num < target_num:
                 continue
-
-        # If related_spv is set, must match user's SPV
-        if related_spv and related_spv != spv_id:
+        if related_spv and related_spv != spv_id and not is_admin:
             continue
 
         result.append(n)
+
+    # 2. Request-driven notifications from admin_requests
+    if is_admin:
+        # Admin sees all requests as notifications
+        requests = list(requests_col.find(
+            {}, {"_id": 0}
+        ).sort("created_at", -1).limit(100))
+    else:
+        # Non-admin sees only their own submitted requests
+        requests = list(requests_col.find(
+            {"requested_by_email": user_email}, {"_id": 0}
+        ).sort("created_at", -1).limit(50))
+
+    for r in requests:
+        req_type = r.get("request_type", "request")
+        req_spv = r.get("spv_id", "")
+        req_deal = r.get("deal_id", "")
+        req_name = r.get("deal_name", req_deal)
+        requester = r.get("requested_by_email", "")
+        requester_name = r.get("requested_by_name", requester)
+        status = r.get("status", "pending")
+
+        # Build title
+        type_label = req_type.replace("_", " ").title()
+        title = f"{type_label} for {req_spv}" if req_spv else type_label
+
+        # Build body
+        if is_admin:
+            body = f"{requester} submitted {req_type.replace('_', ' ')} for {req_spv}"
+            if req_name and req_name != req_deal:
+                body += f" ({req_name})"
+            body += f". Status: {status}."
+        else:
+            body = f"Your {req_type.replace('_', ' ')} for {req_spv}"
+            if req_name and req_name != req_deal:
+                body += f" ({req_name})"
+            body += f" is {status}."
+
+        result.append({
+            "notification_id": r.get("request_id", ""),
+            "notification_type": title,
+            "message_body": body,
+            "target_level": r.get("requester_level"),
+            "target_user": requester if is_admin else None,
+            "related_spv_id": req_spv,
+            "related_deal_id": req_deal,
+            "notification_status": "sent",
+            "sent_timestamp": r.get("created_at", r.get("timestamp", "")),
+            "request_status": status,
+            "source": "request",
+        })
+
+    # Sort all by timestamp, newest first
+    result.sort(key=lambda x: x.get("sent_timestamp", ""), reverse=True)
 
     return {"notifications": result, "count": len(result)}
 
