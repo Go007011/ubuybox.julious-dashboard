@@ -1257,7 +1257,49 @@ async def get_user_dashboard(email: str):
     orders_all = await fetch_sheet_tab(SHEET_ORDERS)
     opp_release_all = await fetch_sheet_tab(SHEET_OPP_RELEASE)
 
-    # --- Personal SPV context (assigned_spv_id) ---
+    # --- Additive repair: rescue Active Opportunities when the Release Control
+    # sheet has been overwritten with a Main-Maps-Offers-style schema (no
+    # `release_status`, `release_to_level`, `level_*_cta` columns). In that
+    # case we synthesize release metadata from the row's `Status` column and
+    # sensible level-based defaults so the Active Opportunities dashboard
+    # block still renders. Properly-shaped release sheets are not touched.
+    if opp_release_all and "release_status" not in opp_release_all[0]:
+        synth = []
+        for row in opp_release_all:
+            if (row.get("Status") or "").strip().lower() != "active":
+                continue
+            opp_spv = (row.get("spv_id") or row.get("Business ID (UBIDS)") or "").strip()
+            opp_deal = (row.get("deal_id") or row.get("Deal_ID") or "").strip()
+            if not opp_spv or not opp_deal:
+                continue
+            synth.append({
+                "release_status": "Active",
+                "release_to_level": "LEVEL_1",  # visible to every level by default
+                "spv_id": opp_spv,
+                "deal_id": opp_deal,
+                "visibility_mode": "teaser",
+                "level_1_visibility": "teaser",
+                "level_2_visibility": "preview",
+                "level_3_visibility": "full",
+                "level_1_cta": "Request Information",
+                "level_2_cta": "Request Participation",
+                "level_3_cta": "Manage Opportunity",
+                "level_1_access_state": "Approval Required",
+                "level_2_access_state": "Available",
+                "level_3_access_state": "Available",
+                "approval_required": "Yes",
+                "max_orders_allowed": "0",
+                "current_orders_count": "0",
+                "capacity_status": "",
+                "opportunity_access_state": "Available",
+                "notes": "",
+            })
+        opp_release_all = synth
+        logger.info(
+            f"Opportunity Release Control sheet detected as misaligned; synthesized {len(synth)} active releases using level defaults."
+        )
+
+    # --- Personal Business context (assigned_spv_id) ---
     personal_main = filter_by_spv(main_maps_all, spv_id)
     personal_reg = filter_by_spv(spv_reg_all, spv_id)
     personal_cap = filter_by_spv(cap_stack_all, spv_id)
