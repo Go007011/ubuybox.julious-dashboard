@@ -1775,6 +1775,201 @@ async def get_tranche_breakdown(email: str):
     return {"tranches": result, "count": len(result), "spvId": spv_id, "source": "sheet"}
 
 
+# ============= WATERFALL VISUALIZATION ENGINE =============
+# Joins Waterfall Engine + Tranche Breakdown sheets by Business ID (UBIDS) + Tranche.
+# Returns a UI-ready structured payload for the premium waterfall dashboard.
+
+def _tranche_kind(name: str) -> str:
+    """Normalize tranche label to one of senior|mezz|equity|other for color/ordering."""
+    n = (name or "").strip().lower()
+    if "senior" in n:
+        return "senior"
+    if "mezz" in n:
+        return "mezz"
+    if "equity" in n:
+        return "equity"
+    return "other"
+
+
+def _parse_amount_value(raw) -> float:
+    """Permissive amount parser. Accepts strings like '$1,250,000' or numbers."""
+    if raw in (None, ""):
+        return 0.0
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    try:
+        cleaned = str(raw).replace("$", "").replace(",", "").strip()
+        return float(cleaned) if cleaned else 0.0
+    except Exception:
+        return 0.0
+
+
+def _tranche_sort_rank(kind: str) -> int:
+    return {"senior": 0, "mezz": 1, "equity": 2}.get(kind, 3)
+
+
+@app.get("/api/user/available-businesses")
+async def get_available_businesses(email: str):
+    """List the Business IDs (UBIDS) the viewer is allowed to select in the Waterfall page.
+    Regular users -> only their assigned UBIDS. Admin -> all distinct UBIDS found in
+    Waterfall Engine sheet (fallback: Tranche Breakdown)."""
+    user = await _resolve_and_validate(email)
+    is_admin = user["email"] == (ADMIN_EMAIL or "")
+    if not is_admin:
+        bid = user["assigned_spv_id"]
+        return {"businesses": [bid] if bid else [], "isAdmin": False}
+
+    seen: list[str] = []
+    for sheet_name in (SHEET_WATERFALL, SHEET_TRANCHE):
+        try:
+            rows = await fetch_sheet_tab(sheet_name)
+            for r in rows:
+                bid = (r.get("SPV_ID") or r.get("Business ID (UBIDS)") or "").strip()
+                if bid and bid not in seen:
+                    seen.append(bid)
+        except Exception:
+            continue
+    return {"businesses": seen, "isAdmin": True}
+
+
+@app.get("/api/user/waterfall-view")
+async def get_waterfall_view(email: str, businessId: Optional[str] = None):
+    """UI-ready Waterfall visualization payload for a single Business ID.
+    Requires LEVEL_3 or admin. Joins Waterfall Engine (Step_Order, Tranche, Description)
+    with Tranche Breakdown (Amount, Return_Target, Priority, Risk_Level).
+    Safe degradation: missing sheets return empty sections rather than erroring out.
+    """
+    user = await _resolve_and_validate(email)
+    level = user["license_level"]
+    is_admin = user["email"] == (ADMIN_EMAIL or "")
+
+    if level != "LEVEL_3" and not is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "access_denied", "message": "Waterfall view requires Level 3 access."},
+        )
+
+    business_id = (businessId or "").strip() or user["assigned_spv_id"]
+    if not business_id:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "missing_business_id", "message": "No Business ID (UBIDS) supplied or assigned."},
+        )
+    # Non-admin users cannot request a different business than their own.
+    if not is_admin and business_id != user["assigned_spv_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "business_scope_violation", "message": "You may only view your assigned Business."},
+        )
+
+    # --- Fetch both sheets defensively ---
+    try:
+        waterfall_rows = filter_by_spv(await fetch_sheet_tab(SHEET_WATERFALL), business_id)
+    except Exception as e:
+        logger.warning(f"Waterfall Engine fetch failed: {type(e).__name__}")
+        waterfall_rows = []
+    try:
+        tranche_rows = filter_by_spv(await fetch_sheet_tab(SHEET_TRANCHE), business_id)
+    except Exception as e:
+        logger.warning(f"Tranche Breakdown fetch failed: {type(e).__name__}")
+        tranche_rows = []
+
+    # --- Build joined tranche records keyed by tranche name (case-insensitive) ---
+    tranche_lookup: dict[str, dict] = {}
+    for t in tranche_rows:
+        key = (t.get("Tranche_Type") or "").strip().lower()
+        if not key:
+            continue
+        tranche_lookup[key] = t
+
+    tranches_out: list[dict] = []
+    for w in waterfall_rows:
+        tranche_name = (w.get("Tranche") or "").strip()
+        kind = _tranche_kind(tranche_name)
+        t = tranche_lookup.get(tranche_name.lower(), {})
+        amount = _parse_amount_value(t.get("Amount"))
+        try:
+            step_order = int(w.get("Step_Order") or 0)
+        except ValueError:
+            step_order = 0
+        try:
+            priority = int(t.get("Priority") or 0) if t.get("Priority") else None
+        except ValueError:
+            priority = None
+        tranches_out.append({
+            "step": step_order,
+            "name": tranche_name or "—",
+            "kind": kind,
+            "amount": amount,
+            "return_target": (t.get("Return_Target") or "").strip() or "Data unavailable",
+            "priority": priority,
+            "risk": (t.get("Risk_Level") or "").strip() or "Data unavailable",
+            "description": (w.get("Description") or "").strip() or "Data unavailable",
+        })
+
+    # If Waterfall Engine is empty but Tranche Breakdown has data, derive steps from tranche sort
+    if not tranches_out and tranche_rows:
+        for idx, t in enumerate(
+            sorted(tranche_rows, key=lambda r: _tranche_sort_rank(_tranche_kind(r.get("Tranche_Type", "")))),
+            start=1,
+        ):
+            tranche_name = (t.get("Tranche_Type") or "").strip()
+            kind = _tranche_kind(tranche_name)
+            amount = _parse_amount_value(t.get("Amount"))
+            try:
+                priority = int(t.get("Priority") or 0) if t.get("Priority") else None
+            except ValueError:
+                priority = None
+            tranches_out.append({
+                "step": idx,
+                "name": tranche_name or "—",
+                "kind": kind,
+                "amount": amount,
+                "return_target": (t.get("Return_Target") or "").strip() or "Data unavailable",
+                "priority": priority,
+                "risk": (t.get("Risk_Level") or "").strip() or "Data unavailable",
+                "description": "Data unavailable",
+            })
+
+    # Sort ascending by step, fall back to senior->mezz->equity
+    tranches_out.sort(key=lambda x: (x["step"] if x["step"] else 99, _tranche_sort_rank(x["kind"])))
+
+    total_capital = sum(t["amount"] for t in tranches_out)
+    for t in tranches_out:
+        t["percent"] = round((t["amount"] / total_capital) * 100, 2) if total_capital else 0.0
+
+    # Summary KPI strip — one bucket per kind
+    summary_by_kind: dict[str, dict] = {}
+    for t in tranches_out:
+        entry = summary_by_kind.setdefault(t["kind"], {"amount": 0.0, "percent": 0.0, "count": 0})
+        entry["amount"] += t["amount"]
+        entry["count"] += 1
+    for k, entry in summary_by_kind.items():
+        entry["percent"] = round((entry["amount"] / total_capital) * 100, 2) if total_capital else 0.0
+
+    chart_data = [
+        {"name": t["name"], "kind": t["kind"], "amount": t["amount"], "percent": t["percent"]}
+        for t in tranches_out
+        if t["amount"] > 0
+    ]
+
+    return {
+        "business_id": business_id,
+        "total_capital": total_capital,
+        "tranches": tranches_out,
+        "chart_data": chart_data,
+        "summary": {
+            "senior": summary_by_kind.get("senior", {"amount": 0.0, "percent": 0.0, "count": 0}),
+            "mezz":   summary_by_kind.get("mezz",   {"amount": 0.0, "percent": 0.0, "count": 0}),
+            "equity": summary_by_kind.get("equity", {"amount": 0.0, "percent": 0.0, "count": 0}),
+            "total_capital": total_capital,
+            "tranche_count": len(tranches_out),
+        },
+        "has_waterfall_rows": len(waterfall_rows) > 0,
+        "has_tranche_rows": len(tranche_rows) > 0,
+    }
+
+
 # ============= BOLT ACCESS ROUTING LAYER =============
 # Supabase is the secure structured access-decision source.
 # If Supabase credentials are configured, use them. Otherwise fall back to

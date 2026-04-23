@@ -193,6 +193,15 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Frontend hardcoded labels updated across Dashboard, SPVRegistry, DealSummary, TrancheBreakdown, Notifications, AdminControl, HoldCoSummary, DealDetail, DealCard, Header, Sidebar: "SPV" → "Business", "SPV ID" → "Business ID (UBIDS)", "My SPV" → "My Business", "SPVs" → "Businesses", "SPV Registry" → "Business Registry"
 - Verified: 0 visible-text SPV leaks across 11 routes for L3 user + admin; API value scans show 0 SPV string-value leaks across 7 endpoints
 
+### Phase 20: Premium Waterfall Visualization Engine (Complete — 2026-04-23)
+- New endpoints `GET /api/user/waterfall-view?email&businessId` and `GET /api/user/available-businesses?email`. Waterfall-view joins Waterfall Engine + Tranche Breakdown on Business ID (UBIDS) + Tranche, returns UI-ready payload: business_id, total_capital, tranches[step,name,kind,amount,percent,return_target,priority,risk,description], chart_data, summary{senior,mezz,equity,total_capital,tranche_count}
+- Access: LEVEL_3 / admin only (403 for L1/L2); non-admin users cannot query a business other than their assigned one (cross-business request returns 403)
+- Safe degradation: if Waterfall Engine rows are empty, steps are derived from Tranche Breakdown order; missing values render as "Data unavailable" placeholders rather than breaking layout
+- Frontend `/app/frontend/src/pages/Waterfalls.tsx` fully rewritten: title block with UBIDS highlighted, Business selector (admin sees all 20 UBIDS, users see only theirs), 4 KPI cards (Total / Senior / Mezz / Equity with amount + % of capital), stacked bar chart with color-coded segments + legend, SVG donut chart with center label, 8-column tranche table (Step/Tranche/Amount/% of Total/Return Target/Priority/Risk/Description) sorted by Step_Order with Senior→Mezz→Equity priority, Distribution Order step cards
+- Chart rendering: pure SVG + CSS — no new dependency added
+- Dynamic: selector change triggers refetch + full UI re-render with no page reload
+- Verified: L3 user sees UBIDS_015 with $95K total + 3 tranches; admin switches to UBIDS_021 and sees $875K + fully re-rendered chart/table/cards; 0 visible-text SPV leaks on both; L1/L2 see access-denied card
+
 ## Backlog
 
 ### P1: Persistent Orchestration State
