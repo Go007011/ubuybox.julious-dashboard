@@ -1919,6 +1919,50 @@ async def get_waterfall_view(email: str, businessId: Optional[str] = None):
         logger.warning(f"Tranche Breakdown fetch failed: {type(e).__name__}")
         tranche_rows = []
 
+    # --- Additive repair: rescue Waterfall rendering when the Waterfall Engine /
+    # Tranche Breakdown sheets have been overwritten with a Main-Maps-Offers-style
+    # schema (no Step_Order / Tranche / Tranche_Type / Amount columns). In that
+    # case, synthesize a standard 3-tranche capital stack from TOTAL_CAPITAL_REQUIRED
+    # using the conventional 65/20/15 Senior/Mezz/Equity split and prior default
+    # return targets / risk labels. Properly-shaped sheets are not touched.
+    def _row_lacks_waterfall_schema(rows):
+        return bool(rows) and not any(r.get("Step_Order") or r.get("Tranche") for r in rows)
+
+    def _row_lacks_tranche_schema(rows):
+        return bool(rows) and not any(r.get("Tranche_Type") or r.get("Amount") for r in rows)
+
+    synthesized_default_stack = False
+    if _row_lacks_waterfall_schema(waterfall_rows) and _row_lacks_tranche_schema(tranche_rows):
+        # Take the first row of either sheet to extract the preserved financials
+        src = (waterfall_rows + tranche_rows)[0] if (waterfall_rows or tranche_rows) else {}
+        total_required_raw = src.get("TOTAL_CAPITAL_REQUIRED") or src.get("Purchase Price") or ""
+        total_required = _parse_amount_value(total_required_raw)
+        deal_id = (src.get("Deal_ID") or src.get("deal_id") or "").strip()
+        if total_required > 0:
+            senior_amt = round(total_required * 0.65, 2)
+            mezz_amt   = round(total_required * 0.20, 2)
+            equity_amt = round(total_required - senior_amt - mezz_amt, 2)  # absorb rounding
+            waterfall_rows = [
+                {"Deal_ID": deal_id, "SPV_ID": business_id, "Step_Order": "1", "Tranche": "Senior",
+                 "Description": "Senior debt — paid first from operating cash flow"},
+                {"Deal_ID": deal_id, "SPV_ID": business_id, "Step_Order": "2", "Tranche": "Mezz",
+                 "Description": "Mezzanine — paid after senior debt is current"},
+                {"Deal_ID": deal_id, "SPV_ID": business_id, "Step_Order": "3", "Tranche": "Equity",
+                 "Description": "Equity — receives remaining distributions"},
+            ]
+            tranche_rows = [
+                {"Deal_ID": deal_id, "SPV_ID": business_id, "Tranche_Type": "Senior",
+                 "Amount": str(senior_amt), "Return_Target": "8-10%", "Priority": "1", "Risk_Level": "Low"},
+                {"Deal_ID": deal_id, "SPV_ID": business_id, "Tranche_Type": "Mezz",
+                 "Amount": str(mezz_amt), "Return_Target": "12-16%", "Priority": "2", "Risk_Level": "Medium"},
+                {"Deal_ID": deal_id, "SPV_ID": business_id, "Tranche_Type": "Equity",
+                 "Amount": str(equity_amt), "Return_Target": "20%+", "Priority": "3", "Risk_Level": "High"},
+            ]
+            synthesized_default_stack = True
+            logger.info(
+                f"Waterfall/Tranche sheets misaligned for {business_id}; synthesized default 65/20/15 stack from TOTAL_CAPITAL_REQUIRED=${total_required:,.0f}."
+            )
+
     # --- Build joined tranche records keyed by tranche name (case-insensitive) ---
     tranche_lookup: dict[str, dict] = {}
     for t in tranche_rows:
@@ -2012,6 +2056,7 @@ async def get_waterfall_view(email: str, businessId: Optional[str] = None):
         },
         "has_waterfall_rows": len(waterfall_rows) > 0,
         "has_tranche_rows": len(tranche_rows) > 0,
+        "synthesized_default_stack": synthesized_default_stack,
     }
 
 
