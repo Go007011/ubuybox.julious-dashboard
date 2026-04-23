@@ -24,7 +24,7 @@ export default function SPVRegistry() {
     <div className="space-y-6" data-testid="spv-registry-page">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="glass-card p-5">
-          <p className="text-sm text-slate-400">SPV</p>
+          <p className="text-sm text-slate-400">Business</p>
           <p className="text-2xl font-bold text-white mt-1">{data.user.assignedSpvId}</p>
         </div>
         <div className="glass-card p-5">
@@ -39,14 +39,14 @@ export default function SPVRegistry() {
 
       <div className="glass-card overflow-hidden">
         <div className="p-6 border-b border-slate-700/50">
-          <h2 className="text-lg font-semibold text-white">SPV Registry</h2>
+          <h2 className="text-lg font-semibold text-white">Business Registry</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-700/50">
                 <th className="px-6 py-4 text-left text-xs font-medium text-slate-500 uppercase">Deal ID</th>
-                <th className="px-6 py-4 text-left text-xs font-medium text-slate-500 uppercase">SPV ID</th>
+                <th className="px-6 py-4 text-left text-xs font-medium text-slate-500 uppercase">Business ID (UBIDS)</th>
                 <th className="px-6 py-4 text-left text-xs font-medium text-slate-500 uppercase">State</th>
                 <th className="px-6 py-4 text-left text-xs font-medium text-slate-500 uppercase">County</th>
                 <th className="px-6 py-4 text-left text-xs font-medium text-slate-500 uppercase">Business Use</th>

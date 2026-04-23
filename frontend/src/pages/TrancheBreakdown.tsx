@@ -140,14 +140,14 @@ export default function TrancheBreakdown() {
         </p>
         {user && (
           <p className="text-xs text-slate-500 mt-1">
-            SPV: <span className="text-slate-300">{user.assignedSpvId}</span> · Access: <span className="text-slate-300">{user.licenseLevel}</span>
+            Business: <span className="text-slate-300">{user.assignedSpvId}</span> · Access: <span className="text-slate-300">{user.licenseLevel}</span>
           </p>
         )}
       </div>
 
       {grouped.length === 0 ? (
         <div className="glass-card p-8 text-center" data-testid="tranche-breakdown-empty">
-          <p className="text-slate-400">No tranche records available for this SPV yet.</p>
+          <p className="text-slate-400">No tranche records available for this Business yet.</p>
         </div>
       ) : (
         <div className="space-y-6">

@@ -184,6 +184,15 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Dashboard endpoint `/api/user/dashboard` intentionally left on sheet reads this phase: its per-opportunity cross-join logic requires raw rows that will migrate to a materialized view later
 - Verified: SUPABASE_ENABLED=False in env → all endpoints return source="sheet"; response shapes identical to pre-migration; L1/L2/L3 filtering unchanged; admin cannot see owner-only CTAs
 
+### Phase 19: UBIDS Terminology Enforcement (Complete — 2026-04-23)
+- Source Google Sheets migrated: `SPV_ID`/`spv_id` columns → `Business ID (UBIDS)`; `assigned_spv_id` → `assigned_business_id`; values `SPV_###` → `UBIDS_###`
+- Backend data-loading alias: `fetch_sheet_tab` now also exposes `"Business ID (UBIDS)"` column values under the legacy keys `SPV_ID` / `spv_id` so internal masking / filtering code keeps working without invasive refactor
+- Backend Licensed Users loader reads `assigned_business_id` (with `assigned_spv_id` fallback)
+- New FastAPI middleware `ubids_presentation_sanitizer` rewrites every outbound `/api/*` JSON body. Ordered regex: `SPV_\d+` → `UBIDS_\d+`, `SPV Registry` → `Business Registry`, `SPV ID` → `Business ID (UBIDS)`, `SPV Structure` → `Business Structure`, `SPVs` → `Businesses`, standalone `\bSPV\b` → `Business`. JSON keys preserved (no word boundary inside `SPV_ID`), so frontend contract is stable.
+- Seeded menu item "SPV Registry" renamed to "Business Registry" (with one-shot migration for existing DB rows)
+- Frontend hardcoded labels updated across Dashboard, SPVRegistry, DealSummary, TrancheBreakdown, Notifications, AdminControl, HoldCoSummary, DealDetail, DealCard, Header, Sidebar: "SPV" → "Business", "SPV ID" → "Business ID (UBIDS)", "My SPV" → "My Business", "SPVs" → "Businesses", "SPV Registry" → "Business Registry"
+- Verified: 0 visible-text SPV leaks across 11 routes for L3 user + admin; API value scans show 0 SPV string-value leaks across 7 endpoints
+
 ## Backlog
 
 ### P1: Persistent Orchestration State

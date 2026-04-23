@@ -4,7 +4,7 @@ const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
   '/intake': 'Opportunity Intake',
   '/capital': 'Capital Stack',
-  '/spv': 'SPV Registry',
+  '/spv': 'Business Registry',
   '/waterfalls': 'Waterfalls',
   '/holdco': 'HoldCo Summary',
   '/documents': 'Documents',

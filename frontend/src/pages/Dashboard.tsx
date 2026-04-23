@@ -179,7 +179,7 @@ export default function Dashboard() {
     <div className="space-y-6" data-testid="dashboard-page">
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="My SPV" value={user.assignedSpvId} change={`${pc.stats.totalDeals} deal(s)`} changeType="positive" icon={<BuildingIcon />} iconBg="bg-blue-500/10" />
+        <StatCard title="My Business" value={user.assignedSpvId} change={`${pc.stats.totalDeals} deal(s)`} changeType="positive" icon={<BuildingIcon />} iconBg="bg-blue-500/10" />
         <StatCard title="My Units" value={pc.stats.totalUnits} change={`${pc.stats.unitsSold} sold`} changeType="neutral" icon={<UnitIcon />} iconBg="bg-purple-500/10" />
         <StatCard title="Active Opportunities" value={opportunities.length} change={`Released to ${user.licenseLevel}`} changeType="positive" icon={<OppsIcon />} iconBg="bg-emerald-500/10" />
         <StatCard title="Requests" value={`${caps.activeOrderCount}/${caps.maxActiveRequests}`} change={caps.capReached ? 'Limit reached' : 'Available'} changeType={caps.capReached ? 'neutral' : 'positive'} icon={<ChartIcon />} iconBg="bg-orange-500/10" />
@@ -213,7 +213,7 @@ export default function Dashboard() {
           <div className="glass-card p-5">
             <h3 className="font-semibold text-white mb-3">My Position</h3>
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-slate-400">SPV</span><span className="text-white">{user.assignedSpvId}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Business</span><span className="text-white">{user.assignedSpvId}</span></div>
               <div className="flex justify-between"><span className="text-slate-400">Level</span><span className="text-white">{user.licenseLevel}</span></div>
               {personalDeal.Property_Type && <div className="flex justify-between"><span className="text-slate-400">Type</span><span className="text-white">{personalDeal.Property_Type}</span></div>}
               {personalDeal.Status && <div className="flex justify-between"><span className="text-slate-400">Status</span><span className={personalDeal.Status === 'Active' ? 'text-emerald-400' : 'text-amber-400'}>{personalDeal.Status}</span></div>}
@@ -235,7 +235,7 @@ export default function Dashboard() {
             <h3 className="font-semibold text-white mb-3">Quick Links</h3>
             <div className="space-y-2">
               <Link to="/capital" className="block text-sm text-slate-400 hover:text-white transition-base">Capital Stack →</Link>
-              <Link to="/spv" className="block text-sm text-slate-400 hover:text-white transition-base">SPV Registry →</Link>
+              <Link to="/spv" className="block text-sm text-slate-400 hover:text-white transition-base">Business Registry →</Link>
               <Link to="/waterfalls" className="block text-sm text-slate-400 hover:text-white transition-base">Waterfalls →</Link>
               <Link to="/holdco" className="block text-sm text-slate-400 hover:text-white transition-base">HoldCo Summary →</Link>
               <Link to="/documents" className="block text-sm text-slate-400 hover:text-white transition-base">Documents →</Link>

@@ -61,7 +61,7 @@ export default function HoldCoSummary() {
           <p className="text-2xl font-bold text-white mt-1">{holdCoData.length}</p>
         </div>
         <div className="glass-card p-5">
-          <p className="text-sm text-slate-400">Total SPVs</p>
+          <p className="text-sm text-slate-400">Total Businesses</p>
           <p className="text-2xl font-bold text-purple-400 mt-1">{totalSPVs}</p>
         </div>
         <div className="glass-card p-5">
@@ -88,7 +88,7 @@ export default function HoldCoSummary() {
                     {holdCo.status}
                   </span>
                 </div>
-                <p className="text-sm text-slate-500 mt-1">{holdCo.spvCount} SPVs under management</p>
+                <p className="text-sm text-slate-500 mt-1">{holdCo.spvCount} Businesses under management</p>
               </div>
               <button className="text-orange-500 hover:text-orange-400 transition-base text-sm font-medium">
                 View Details →
@@ -96,7 +96,7 @@ export default function HoldCoSummary() {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="p-3 bg-slate-800/50 rounded-xl">
-                <p className="text-xs text-slate-500">SPVs</p>
+                <p className="text-xs text-slate-500">Businesses</p>
                 <p className="text-lg font-semibold text-white">{holdCo.spvCount}</p>
               </div>
               <div className="p-3 bg-slate-800/50 rounded-xl">

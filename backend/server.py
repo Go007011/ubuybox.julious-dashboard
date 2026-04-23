@@ -22,7 +22,7 @@ from typing import Optional, Literal, List
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from pymongo import MongoClient
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
@@ -49,6 +49,70 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ============= PRESENTATION SANITIZER (UBIDS ENFORCEMENT) =============
+# UBUYBOX Data Presentation and Enforcement Layer.
+# Legacy "SPV" terminology must never reach a user-visible surface.
+# Internal field names (e.g. keys like "SPV_ID", "spvId") are preserved
+# so the JSON contract stays stable; only string VALUES are rewritten.
+#
+# Precedence (applied in order):
+#   SPV_###       -> UBIDS_###
+#   SPV Registry  -> Business Registry
+#   SPV ID        -> Business ID (UBIDS)
+#   SPV Structure -> Business Structure
+#   \bSPV\b       -> Business   (standalone word only; keys like SPV_ID are unaffected
+#                                because "_" is a word character, so no word boundary)
+import re as _re
+
+_SPV_VALUE_PATTERNS = [
+    (_re.compile(r'SPV_(\d+)'),                      r'UBIDS_\1'),
+    (_re.compile(r'\bSPV[ \-]Registry\b'),           'Business Registry'),
+    (_re.compile(r'\bSPV[ \-]ID\b', _re.IGNORECASE), 'Business ID (UBIDS)'),
+    (_re.compile(r'\bSPV[ \-]Structure\b'),          'Business Structure'),
+    (_re.compile(r'\bSPVs\b'),                       'Businesses'),
+    (_re.compile(r'\bSPV\b'),                        'Business'),
+]
+
+def _sanitize_ubids_text(text: str) -> str:
+    for pattern, replacement in _SPV_VALUE_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+@app.middleware("http")
+async def ubids_presentation_sanitizer(request: Request, call_next):
+    """Rewrite SPV terminology to UBIDS / Business in all outbound /api/* JSON.
+    Keys preserved; only string values inside the JSON body are transformed.
+    """
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        return response
+    ctype = response.headers.get("content-type", "")
+    if "application/json" not in ctype:
+        return response
+
+    try:
+        body = b""
+        async for chunk in response.body_iterator:
+            body += chunk
+        text = body.decode("utf-8")
+        # Fast path: skip if no "SPV" token at all
+        if "SPV" in text:
+            text = _sanitize_ubids_text(text)
+        new_body = text.encode("utf-8")
+        headers = dict(response.headers)
+        # Rebuild Content-Length to match the new body
+        headers["content-length"] = str(len(new_body))
+        return Response(
+            content=new_body,
+            status_code=response.status_code,
+            headers=headers,
+            media_type="application/json",
+        )
+    except Exception as e:
+        logger.warning(f"UBIDS sanitizer failed: {type(e).__name__} — passing raw response")
+        return response
 
 # ============= CONFIGURATION =============
 
@@ -285,7 +349,9 @@ async def fetch_access_control() -> list[dict]:
             "owner_name": row.get("owner_name", "").strip(),
             "license_level": row.get("license_level", "").strip(),
             "status": row.get("status", "").strip(),
-            "assigned_spv_id": row.get("assigned_spv_id", "").strip(),
+            # Licensed Users sheet migrated: "assigned_spv_id" -> "assigned_business_id".
+            # Keep internal key name "assigned_spv_id" stable; value is the UBIDS identifier.
+            "assigned_spv_id": (row.get("assigned_business_id") or row.get("assigned_spv_id") or "").strip(),
             "access_type": row.get("access_type", "").strip(),
             "source": row.get("source", "").strip(),
         })
@@ -320,12 +386,21 @@ async def fetch_sheet_tab(sheet_name: str) -> list[dict]:
     rows = []
     for row in reader:
         clean = {k: v.strip() for k, v in row.items() if k and k.strip()}
+        # Source data has migrated SPV terminology -> UBIDS.
+        # Alias the new canonical identifier column to the legacy key names
+        # so existing downstream masking / filtering code keeps working without churn.
+        if "Business ID (UBIDS)" in clean:
+            business_id = clean["Business ID (UBIDS)"]
+            if "SPV_ID" not in clean:
+                clean["SPV_ID"] = business_id
+            if "spv_id" not in clean:
+                clean["spv_id"] = business_id
         rows.append(clean)
     return rows
 
 
 def filter_by_spv(rows: list[dict], spv_id: str) -> list[dict]:
-    """Filter rows to those matching the given SPV_ID."""
+    """Filter rows to those matching the given business identifier (internally named SPV_ID)."""
     return [r for r in rows if r.get("SPV_ID", "").strip() == spv_id]
 
 
@@ -2564,7 +2639,7 @@ DEFAULT_MENU_ITEMS = [
     {"id": "dashboard",         "menu_label": "Dashboard",           "path": "/",                    "source_sheet_name": "Main Maps Offers",              "icon_name": "home",       "enabled": True, "allowed_levels": ["LEVEL_1", "LEVEL_2", "LEVEL_3"], "admin_only": False, "hidden_but_queryable": False, "sort_order": 1},
     {"id": "intake",            "menu_label": "Opportunity Intake",  "path": "/intake",              "source_sheet_name": "Opportunity Release Control",   "icon_name": "plus",       "enabled": True, "allowed_levels": ["LEVEL_2", "LEVEL_3"],            "admin_only": False, "hidden_but_queryable": False, "sort_order": 2},
     {"id": "capital",           "menu_label": "Capital Stack",       "path": "/capital",             "source_sheet_name": "Capital Stack",                 "icon_name": "stack",      "enabled": True, "allowed_levels": ["LEVEL_1", "LEVEL_2", "LEVEL_3"], "admin_only": False, "hidden_but_queryable": False, "sort_order": 3},
-    {"id": "spv",               "menu_label": "SPV Registry",        "path": "/spv",                 "source_sheet_name": "SPV Registry",                  "icon_name": "building",   "enabled": True, "allowed_levels": ["LEVEL_1", "LEVEL_2", "LEVEL_3"], "admin_only": False, "hidden_but_queryable": False, "sort_order": 4},
+    {"id": "spv",               "menu_label": "Business Registry",   "path": "/spv",                 "source_sheet_name": "SPV Registry",                  "icon_name": "building",   "enabled": True, "allowed_levels": ["LEVEL_1", "LEVEL_2", "LEVEL_3"], "admin_only": False, "hidden_but_queryable": False, "sort_order": 4},
     {"id": "waterfalls",        "menu_label": "Waterfalls",          "path": "/waterfalls",          "source_sheet_name": "Waterfall Engine",              "icon_name": "chart",      "enabled": True, "allowed_levels": ["LEVEL_1", "LEVEL_2", "LEVEL_3"], "admin_only": False, "hidden_but_queryable": False, "sort_order": 5},
     {"id": "holdco",            "menu_label": "HoldCo Summary",      "path": "/holdco",              "source_sheet_name": "—",                             "icon_name": "doc",        "enabled": True, "allowed_levels": ["LEVEL_2", "LEVEL_3"],            "admin_only": False, "hidden_but_queryable": False, "sort_order": 6},
     {"id": "documents",         "menu_label": "Documents",           "path": "/documents",           "source_sheet_name": "—",                             "icon_name": "file",       "enabled": True, "allowed_levels": ["LEVEL_1", "LEVEL_2", "LEVEL_3"], "admin_only": False, "hidden_but_queryable": False, "sort_order": 7},
@@ -2621,6 +2696,18 @@ def _seed_menu_if_empty():
 
 # Seed defaults on startup
 _seed_menu_if_empty()
+
+# One-shot migration: any existing menu_config rows still holding the legacy
+# "SPV Registry" label are upgraded to "Business Registry".
+try:
+    _mig = menu_config_col.update_many(
+        {"menu_label": "SPV Registry"},
+        {"$set": {"menu_label": "Business Registry", "updated_at": datetime.utcnow().isoformat()}},
+    )
+    if _mig.modified_count:
+        logger.info(f"Migrated {_mig.modified_count} menu_config rows: SPV Registry -> Business Registry")
+except Exception as _e:
+    logger.warning(f"menu_config UBIDS migration skipped: {type(_e).__name__}")
 
 
 def _fetch_menu_items_sorted() -> list[dict]:

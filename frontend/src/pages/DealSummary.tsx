@@ -90,18 +90,18 @@ export default function DealSummary() {
       <div>
         <h1 className="text-2xl font-bold text-white">Deal Summary</h1>
         <p className="text-sm text-slate-400 mt-1">
-          Structured summary of your assigned SPV — capital stack, waterfall and risk posture.
+          Structured summary of your assigned Business — capital stack, waterfall and risk posture.
         </p>
         {user && (
           <p className="text-xs text-slate-500 mt-1">
-            SPV: <span className="text-slate-300">{user.assignedSpvId}</span> · Access: <span className="text-slate-300">{user.licenseLevel}</span>
+            Business: <span className="text-slate-300">{user.assignedSpvId}</span> · Access: <span className="text-slate-300">{user.licenseLevel}</span>
           </p>
         )}
       </div>
 
       {rows.length === 0 ? (
         <div className="glass-card p-8 text-center" data-testid="deal-summary-empty">
-          <p className="text-slate-400">No deal summary records available for this SPV yet.</p>
+          <p className="text-slate-400">No deal summary records available for this Business yet.</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -112,7 +112,7 @@ export default function DealSummary() {
                   <h3 className="text-lg font-semibold text-white">{r.Deal_Name || r.Deal_ID || 'Unnamed Deal'}</h3>
                   <p className="text-xs text-slate-500 mt-1">
                     {r.Deal_ID && <span>Deal: <span className="text-slate-300">{r.Deal_ID}</span></span>}
-                    {r.SPV_ID && <span className="ml-3">SPV: <span className="text-slate-300">{r.SPV_ID}</span></span>}
+                    {r.SPV_ID && <span className="ml-3">Business ID: <span className="text-slate-300">{r.SPV_ID}</span></span>}
                     {r.State && <span className="ml-3">State: <span className="text-slate-300">{r.State}</span></span>}
                   </p>
                 </div>

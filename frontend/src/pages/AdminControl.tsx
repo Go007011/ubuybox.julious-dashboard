@@ -126,7 +126,7 @@ function RequestsPanel({ data, onAction }: { data: any; onAction: (p: string, b:
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead><tr className="border-b border-slate-700/50">
-          {['ID','Email','Level','SPV','Type','Status','Time','Actions'].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">{h}</th>)}
+          {['ID','Email','Level','Business','Type','Status','Time','Actions'].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">{h}</th>)}
         </tr></thead>
         <tbody className="divide-y divide-slate-700/50">
           {requests.map((r: any, i: number) => (
@@ -158,7 +158,7 @@ function OrdersPanel({ data, onAction }: { data: any; onAction: (p: string, b: a
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead><tr className="border-b border-slate-700/50">
-          {['Order ID','Partner','SPV','Units','Investment','Payment','Level','Actions'].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">{h}</th>)}
+          {['Order ID','Partner','Business','Units','Investment','Payment','Level','Actions'].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">{h}</th>)}
         </tr></thead>
         <tbody className="divide-y divide-slate-700/50">
           {orders.map((o: any, i: number) => (
@@ -191,7 +191,7 @@ function ReleasesPanel({ data, onAction }: { data: any; onAction: (p: string, b:
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead><tr className="border-b border-slate-700/50">
-          {['SPV','Deal','Status','Level','Visibility','Approval','Capacity','Max','Current','Access','Actions'].map(h => <th key={h} className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase">{h}</th>)}
+          {['Business','Deal','Status','Level','Visibility','Approval','Capacity','Max','Current','Access','Actions'].map(h => <th key={h} className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase">{h}</th>)}
         </tr></thead>
         <tbody className="divide-y divide-slate-700/50">
           {releases.map((r: any, i: number) => (
@@ -347,7 +347,7 @@ function NotificationsPanel({ data, onAction }: { data: any; onAction: (p: strin
             <option value="">All Levels</option><option value="LEVEL_1">Level 1</option><option value="LEVEL_2">Level 2</option><option value="LEVEL_3">Level 3</option>
           </select>
           <input value={form.targetUser} onChange={e => setForm({...form, targetUser: e.target.value})} placeholder="Target email (optional)" className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500" />
-          <input value={form.relatedSpvId} onChange={e => setForm({...form, relatedSpvId: e.target.value})} placeholder="SPV ID (optional)" className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500" />
+          <input value={form.relatedSpvId} onChange={e => setForm({...form, relatedSpvId: e.target.value})} placeholder="Business ID (UBIDS) — optional" className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500" />
           <input value={form.relatedDealId} onChange={e => setForm({...form, relatedDealId: e.target.value})} placeholder="Deal ID (optional)" className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500" />
         </div>
 
@@ -414,7 +414,7 @@ function NotificationsPanel({ data, onAction }: { data: any; onAction: (p: strin
                         <div className="flex flex-wrap gap-3 mt-2 text-xs text-slate-500">
                           {n.target_level && <span>Level: {n.target_level}</span>}
                           {n.target_user && <span>To: {n.target_user}</span>}
-                          {n.related_spv_id && <span>SPV: {n.related_spv_id}</span>}
+                          {n.related_spv_id && <span>Business: {n.related_spv_id}</span>}
                           {n.related_deal_id && <span>Deal: {n.related_deal_id}</span>}
                           <span>{n.sent_timestamp?.slice(0,16).replace('T',' ')}</span>
                         </div>

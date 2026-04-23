@@ -98,7 +98,7 @@ export default function DealDetail() {
           <p className="text-slate-400">{deal.spv}</p>
           <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-700/50 text-slate-400">
             <div className="w-2 h-2 rounded-full bg-red-500" />
-            <span className="text-sm">This SPV is currently blocked from display</span>
+            <span className="text-sm">This Business is currently blocked from display</span>
           </div>
         </div>
       </div>

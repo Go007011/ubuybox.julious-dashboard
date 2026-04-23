@@ -131,7 +131,7 @@ export default function Notifications() {
                   <p className="text-sm text-slate-300 mt-1">{n.message_body}</p>
                   {(n.related_spv_id || n.related_deal_id || n.target_user) && (
                     <div className="flex flex-wrap gap-3 mt-2">
-                      {n.related_spv_id && <span className="text-xs text-slate-500">SPV: {n.related_spv_id}</span>}
+                      {n.related_spv_id && <span className="text-xs text-slate-500">Business: {n.related_spv_id}</span>}
                       {n.related_deal_id && <span className="text-xs text-slate-500">Deal: {n.related_deal_id}</span>}
                       {n.target_user && <span className="text-xs text-slate-500">From: {n.target_user}</span>}
                     </div>

@@ -32,7 +32,7 @@ export default function DealCard({ deal, visibility = 'full' }: DealCardProps) {
           </span>
         </div>
         <p className="text-sm text-slate-500" data-testid="blocked-message">
-          This SPV is currently blocked from display.
+          This Business is currently blocked from display.
         </p>
       </div>
     );
