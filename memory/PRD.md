@@ -202,6 +202,15 @@ Build a full-stack real estate SPV dashboard (UBUYBOX):
 - Dynamic: selector change triggers refetch + full UI re-render with no page reload
 - Verified: L3 user sees UBIDS_015 with $95K total + 3 tranches; admin switches to UBIDS_021 and sees $875K + fully re-rendered chart/table/cards; 0 visible-text SPV leaks on both; L1/L2 see access-denied card
 
+### Phase 21: HoldCo Authorization + Rendering (Complete — 2026-04-23)
+- New backend endpoints: `GET /api/user/holdcos?email` (authorized cards only — unauthorized holdings never enter the payload), `GET /api/user/holdco-detail?email&holdingId` (hard authorization re-check at data-load time, not UI-level; 403 Access Restricted / 404 Holding company not available), `GET /api/admin/holdco-diagnostics?email` (admin-only sheet health report)
+- Authorization resolver with 3 modes in priority order: (1) Holding Company Access sheet when properly shaped (User_Email + Holding_ID + Can_View_Summary + Can_View_Details); (2) Owner_User_Email fallback from HoldCo Summary Rollup if access sheet is misaligned; (3) Admin override always gets full access. Current sheet is misaligned — admin diagnostic reports the 4 missing columns so ops can fix the source without code change.
+- Source sheets: HoldCo Summary Rollup, HoldCo Detail View, Holding Company Access — all read-only
+- Frontend `HoldCoSummary.tsx` rewritten: renders ONLY authorized cards (Holding_Name, Holding_Status badge, Total_Businesses, Total_Assets, Net_Income, Yield); View Details button rendered only when can_view_details=true, otherwise shows disabled "Details Restricted" with lock icon
+- New frontend page `/holdco/:holdingId` (HoldCoDetail.tsx): distinct empty states for restricted/not-found/network errors; shows holding KPI strip + filtered business records table (Business ID (UBIDS), Name, Status, Asset Value, Net Income, Yield, Capital Stack / Waterfall / Registry refs)
+- Route `/holdco/:holdingId` wired in App.tsx
+- Verified end-to-end: L2 owner sees only HOLD_001; direct URL to HOLD_002 returns Access Restricted; L3 user sees "No holding companies assigned."; admin sees all 4; detail filtered strictly to one Holding_ID (5 rows for HOLD_001); 0 visible-text SPV leaks
+
 ## Backlog
 
 ### P1: Persistent Orchestration State

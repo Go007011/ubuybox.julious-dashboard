@@ -130,6 +130,9 @@ SHEET_VALIDATION = "Validation Engine"
 SHEET_ORDERS = "Orders"
 SHEET_OPP_RELEASE = "Opportunity Release Control"
 SHEET_TRANCHE = "Tranche Breakdown"
+SHEET_HOLDCO_SUMMARY = "HoldCo Summary Rollup"
+SHEET_HOLDCO_DETAIL = "HoldCo Detail View"
+SHEET_HOLDCO_ACCESS = "Holding Company Access"
 
 # Level hierarchy for release filtering
 LEVEL_HIERARCHY = {"LEVEL_1": 1, "LEVEL_2": 2, "LEVEL_3": 3}
@@ -1967,6 +1970,272 @@ async def get_waterfall_view(email: str, businessId: Optional[str] = None):
         },
         "has_waterfall_rows": len(waterfall_rows) > 0,
         "has_tranche_rows": len(tranche_rows) > 0,
+    }
+
+
+# ============= HOLDCO AUTHORIZATION + RENDERING =============
+# Permission-scoped rendering for HoldCo Summary + Detail views.
+# Source of truth:
+#   - HoldCo Summary Rollup     (the authoritative card list)
+#   - HoldCo Detail View        (per-business records under a holding)
+#   - Holding Company Access    (access rules: User_Email, Holding_ID, Can_View_Summary, Can_View_Details)
+#
+# Authorization precedence:
+#   1. If the access sheet is shaped correctly (has the expected columns) use it verbatim.
+#   2. Otherwise fall back to `Owner_User_Email` in the Summary Rollup — owner gets both
+#      summary and detail permissions; all other users see nothing.
+#   3. Admin (ADMIN_EMAIL) is authorized for every holding (matches admin role elsewhere).
+#
+# Enforcement rules:
+#   - Unauthorized rows never enter the rendered dataset (filter before return, not after).
+#   - View Details is re-checked on server at load time; UI-visibility is not the gate.
+
+_EXPECTED_HOLDCO_ACCESS_COLS = {"User_Email", "Holding_ID", "Can_View_Summary", "Can_View_Details"}
+
+
+def _parse_bool(v) -> bool:
+    """Permissive bool parser for sheet cells (TRUE/FALSE/Yes/No/1/0)."""
+    if isinstance(v, bool):
+        return v
+    s = str(v or "").strip().lower()
+    return s in {"true", "yes", "y", "1", "t", "allow", "allowed", "enabled"}
+
+
+def _access_sheet_well_formed(rows: list[dict]) -> bool:
+    if not rows:
+        return False
+    cols = set(rows[0].keys())
+    return _EXPECTED_HOLDCO_ACCESS_COLS.issubset(cols)
+
+
+async def _resolve_holdco_access(email: str, is_admin: bool) -> tuple[dict[str, dict], dict]:
+    """
+    Resolve allowed holdings for the given user.
+    Returns (access_map, meta) where:
+      access_map = {Holding_ID: {"can_view_summary": bool, "can_view_details": bool, "source": str}}
+      meta       = {"source": "access_sheet" | "owner_fallback", "access_sheet_ok": bool}
+    Admins receive universal access (populated from Summary Rollup IDs).
+    """
+    email_lc = (email or "").strip().lower()
+
+    # Fetch both possible access layers defensively
+    try:
+        access_rows = await fetch_sheet_tab(SHEET_HOLDCO_ACCESS)
+    except Exception as e:
+        logger.warning(f"Holding Company Access fetch failed: {type(e).__name__}")
+        access_rows = []
+    try:
+        summary_rows = await fetch_sheet_tab(SHEET_HOLDCO_SUMMARY)
+    except Exception as e:
+        logger.warning(f"HoldCo Summary Rollup fetch failed: {type(e).__name__}")
+        summary_rows = []
+
+    access_sheet_ok = _access_sheet_well_formed(access_rows)
+
+    # Admin short-circuit — grant access to every holding in the summary rollup
+    if is_admin:
+        access_map = {}
+        for r in summary_rows:
+            hid = (r.get("Holding_ID") or "").strip()
+            if hid:
+                access_map[hid] = {"can_view_summary": True, "can_view_details": True, "source": "admin_override"}
+        return access_map, {
+            "source": "admin_override",
+            "access_sheet_ok": access_sheet_ok,
+        }
+
+    access_map: dict[str, dict] = {}
+    if access_sheet_ok:
+        for r in access_rows:
+            if (r.get("User_Email") or "").strip().lower() != email_lc:
+                continue
+            hid = (r.get("Holding_ID") or "").strip()
+            if not hid:
+                continue
+            access_map[hid] = {
+                "can_view_summary": _parse_bool(r.get("Can_View_Summary")),
+                "can_view_details": _parse_bool(r.get("Can_View_Details")),
+                "source": "access_sheet",
+            }
+        return access_map, {"source": "access_sheet", "access_sheet_ok": True}
+
+    # Fallback — Owner_User_Email in Summary Rollup
+    for r in summary_rows:
+        owner = (r.get("Owner_User_Email") or "").strip().lower()
+        hid = (r.get("Holding_ID") or "").strip()
+        if not hid or not owner:
+            continue
+        if owner == email_lc:
+            access_map[hid] = {"can_view_summary": True, "can_view_details": True, "source": "owner_fallback"}
+    return access_map, {"source": "owner_fallback", "access_sheet_ok": False}
+
+
+def _coerce_number(value) -> Optional[float]:
+    """Convert sheet cell to float if possible; return None otherwise."""
+    if value in (None, ""):
+        return None
+    try:
+        cleaned = str(value).replace("$", "").replace(",", "").strip()
+        return float(cleaned) if cleaned else None
+    except Exception:
+        return None
+
+
+def _project_holdco_summary(row: dict) -> dict:
+    return {
+        "Holding_ID":       (row.get("Holding_ID") or "").strip(),
+        "Holding_Name":     (row.get("Holding_Name") or "").strip() or "Unnamed Holding",
+        "Holding_Status":   (row.get("Holding_Status") or "").strip() or "—",
+        "Total_Businesses": _coerce_number(row.get("Total_Businesses")),
+        "Total_Assets":     _coerce_number(row.get("Total_Assets")),
+        "Net_Income":       _coerce_number(row.get("Net_Income")),
+        "Yield":            _coerce_number(row.get("Yield")),
+    }
+
+
+def _project_holdco_detail(row: dict) -> dict:
+    return {
+        "Holding_ID":          (row.get("Holding_ID") or "").strip(),
+        "Holding_Name":        (row.get("Holding_Name") or "").strip(),
+        "Business_ID":         (row.get("Business ID (UBIDS)") or row.get("SPV_ID") or "").strip(),
+        "Business_Name":       (row.get("Business_Name") or "").strip() or "—",
+        "Business_Status":     (row.get("Business_Status") or "").strip() or "—",
+        "Asset_Value":         _coerce_number(row.get("Asset_Value")),
+        "Net_Income":          _coerce_number(row.get("Net_Income")),
+        "Yield":               _coerce_number(row.get("Yield")),
+        "Capital_Stack_Ref":   (row.get("Capital_Stack_Ref") or "").strip() or "—",
+        "Waterfall_Ref":       (row.get("Waterfall_Ref") or "").strip() or "—",
+        "Registry_Ref":        (row.get("Registry_Ref") or "").strip() or "—",
+    }
+
+
+@app.get("/api/user/holdcos")
+async def get_user_holdcos(email: str):
+    """Return ONLY holdings the authenticated user is authorized to view as a summary card.
+    Unauthorized holdings are filtered out before serialization."""
+    user = await _resolve_and_validate(email)
+    is_admin = user["email"] == (ADMIN_EMAIL or "")
+
+    access_map, meta = await _resolve_holdco_access(user["email"], is_admin)
+    if not access_map:
+        return {
+            "holdings": [],
+            "count": 0,
+            "accessSource": meta["source"],
+            "accessSheetOk": meta["access_sheet_ok"],
+        }
+
+    try:
+        summary_rows = await fetch_sheet_tab(SHEET_HOLDCO_SUMMARY)
+    except Exception as e:
+        logger.warning(f"HoldCo Summary Rollup fetch failed: {type(e).__name__}")
+        summary_rows = []
+
+    # Index summary rows by Holding_ID for O(1) lookup
+    summary_index: dict[str, dict] = {}
+    for r in summary_rows:
+        hid = (r.get("Holding_ID") or "").strip()
+        if hid:
+            summary_index[hid] = r
+
+    out: list[dict] = []
+    for hid, perms in access_map.items():
+        if not perms.get("can_view_summary"):
+            continue
+        row = summary_index.get(hid)
+        if not row:
+            # Access grants a holding that has no summary row — skip silently
+            continue
+        entry = _project_holdco_summary(row)
+        entry["can_view_details"] = bool(perms.get("can_view_details"))
+        entry["access_source"] = perms.get("source", meta["source"])
+        out.append(entry)
+
+    # Consistent ordering for UI
+    out.sort(key=lambda x: x["Holding_ID"])
+    return {
+        "holdings": out,
+        "count": len(out),
+        "accessSource": meta["source"],
+        "accessSheetOk": meta["access_sheet_ok"],
+    }
+
+
+@app.get("/api/user/holdco-detail")
+async def get_user_holdco_detail(email: str, holdingId: str):
+    """Load HoldCo Detail rows for a single holding, with hard authorization re-check.
+    Returns 403 when the user has no access or Can_View_Details is false.
+    Returns 404 when the holding does not exist in the Summary Rollup."""
+    user = await _resolve_and_validate(email)
+    is_admin = user["email"] == (ADMIN_EMAIL or "")
+
+    holding_id = (holdingId or "").strip()
+    if not holding_id:
+        raise HTTPException(status_code=400, detail={"error": "missing_holding_id", "message": "Holding_ID is required."})
+
+    # 1. Confirm the holding exists in the source of truth (404 vs 403 distinction)
+    try:
+        summary_rows = await fetch_sheet_tab(SHEET_HOLDCO_SUMMARY)
+    except Exception as e:
+        logger.warning(f"HoldCo Summary Rollup fetch failed: {type(e).__name__}")
+        summary_rows = []
+    summary_row = next((r for r in summary_rows if (r.get("Holding_ID") or "").strip() == holding_id), None)
+    if not summary_row:
+        raise HTTPException(status_code=404, detail={"error": "holding_not_found", "message": "Holding company not available."})
+
+    # 2. Hard access re-check (does not rely on the UI or client state)
+    access_map, meta = await _resolve_holdco_access(user["email"], is_admin)
+    perms = access_map.get(holding_id)
+    if not perms or not perms.get("can_view_details"):
+        raise HTTPException(status_code=403, detail={"error": "access_restricted", "message": "Access Restricted."})
+
+    # 3. Load filtered detail rows for this holding ONLY
+    try:
+        detail_rows = await fetch_sheet_tab(SHEET_HOLDCO_DETAIL)
+    except Exception as e:
+        logger.warning(f"HoldCo Detail View fetch failed: {type(e).__name__}")
+        detail_rows = []
+
+    filtered = [r for r in detail_rows if (r.get("Holding_ID") or "").strip() == holding_id]
+    details = [_project_holdco_detail(r) for r in filtered]
+
+    return {
+        "holding": _project_holdco_summary(summary_row),
+        "details": details,
+        "count": len(details),
+        "accessSource": perms.get("source", meta["source"]),
+    }
+
+
+@app.get("/api/admin/holdco-diagnostics")
+async def admin_holdco_diagnostics(email: str):
+    """Report on HoldCo source-sheet health — admin-only. Never leaks row data.
+    Surfaces whether the access sheet is properly shaped so admins can fix it."""
+    _require_admin(email)
+    try:
+        access_rows = await fetch_sheet_tab(SHEET_HOLDCO_ACCESS)
+    except Exception:
+        access_rows = []
+    try:
+        summary_rows = await fetch_sheet_tab(SHEET_HOLDCO_SUMMARY)
+    except Exception:
+        summary_rows = []
+    try:
+        detail_rows = await fetch_sheet_tab(SHEET_HOLDCO_DETAIL)
+    except Exception:
+        detail_rows = []
+
+    ok = _access_sheet_well_formed(access_rows)
+    missing = list(_EXPECTED_HOLDCO_ACCESS_COLS - set(access_rows[0].keys())) if access_rows else list(_EXPECTED_HOLDCO_ACCESS_COLS)
+    return {
+        "accessSheetWellFormed": ok,
+        "missingColumns": [] if ok else sorted(missing),
+        "expectedColumns": sorted(_EXPECTED_HOLDCO_ACCESS_COLS),
+        "accessRowCount": len(access_rows),
+        "summaryRowCount": len(summary_rows),
+        "detailRowCount": len(detail_rows),
+        "fallbackInUse": not ok,
+        "fallbackDescription": "Ownership is inferred from Owner_User_Email in HoldCo Summary Rollup until the access sheet is repaired.",
     }
 
 

@@ -16,6 +16,7 @@ import AccessDenied from './pages/AccessDenied';
 import DealSummary from './pages/DealSummary';
 import TrancheBreakdown from './pages/TrancheBreakdown';
 import MenuManager from './pages/MenuManager';
+import HoldCoDetail from './pages/HoldCoDetail';
 import './index.css';
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/spv" element={<SPVRegistry />} />
         <Route path="/waterfalls" element={<Waterfalls />} />
         <Route path="/holdco" element={<HoldCoSummary />} />
+        <Route path="/holdco/:holdingId" element={<HoldCoDetail />} />
         <Route path="/documents" element={<Documents />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/deal/:id" element={<DealDetail />} />
