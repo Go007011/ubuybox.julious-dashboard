@@ -101,14 +101,15 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
       <aside
         className={`
-          fixed top-0 left-0 h-full w-64 bg-slate-950 border-r border-slate-800 z-50
+          fixed top-0 left-0 h-screen w-64 bg-slate-950 border-r border-slate-800 z-50
+          flex flex-col
           transform transition-transform duration-300 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
         data-testid="sidebar"
       >
         {/* Logo */}
-        <div className="p-6 border-b border-slate-800">
+        <div className="p-6 border-b border-slate-800 flex-shrink-0">
           <Link to="/" className="flex items-center gap-3" data-testid="logo-link" onClick={onClose}>
             <img src="/logo.png" alt="UBUYBOX" className="w-10 h-10 rounded-xl object-contain" />
             <img src={ubuyboxLogo} alt="UBUYBOX" className="h-6 object-contain" />
@@ -116,7 +117,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         </div>
 
         {/* Navigation */}
-        <nav className="p-4 space-y-1 flex-1 overflow-y-auto" data-testid="sidebar-nav">
+        <nav className="p-4 space-y-1 flex-1 min-h-0 overflow-y-auto overflow-x-hidden" data-testid="sidebar-nav">
           {normalItems.map((item) => {
             const isActive = location.pathname === item.path;
             const iconPath = MENU_ICON_PATHS[item.icon_name] || MENU_ICON_PATHS.doc;
@@ -180,7 +181,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         </nav>
 
         {/* User Profile */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-slate-800 bg-slate-950">
+        <div className="flex-shrink-0 p-4 border-t border-slate-800 bg-slate-950">
           {userInfo ? (
             <div className="space-y-2">
               <div className="flex items-center gap-3 px-3 py-2">
