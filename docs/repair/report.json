@@ -1,0 +1,31 @@
+{
+  "Waterfall Engine Rows Written": 60,
+  "Tranche Breakdown Rows Written": 60,
+  "Business_IDs Processed": [
+    "UBIDS_011",
+    "UBIDS_012",
+    "UBIDS_013",
+    "UBIDS_014",
+    "UBIDS_015",
+    "UBIDS_016",
+    "UBIDS_017",
+    "UBIDS_018",
+    "UBIDS_019",
+    "UBIDS_020",
+    "UBIDS_021",
+    "UBIDS_022",
+    "UBIDS_023",
+    "UBIDS_024",
+    "UBIDS_025",
+    "UBIDS_026",
+    "UBIDS_027",
+    "UBIDS_028",
+    "UBIDS_029",
+    "UBIDS_030"
+  ],
+  "Validation Errors": [],
+  "Output Files": [
+    "/app/docs/repair/waterfall_engine.tsv",
+    "/app/docs/repair/tranche_breakdown.tsv"
+  ]
+}

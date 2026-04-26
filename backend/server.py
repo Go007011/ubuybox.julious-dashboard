@@ -390,10 +390,11 @@ async def fetch_sheet_tab(sheet_name: str) -> list[dict]:
     for row in reader:
         clean = {k: v.strip() for k, v in row.items() if k and k.strip()}
         # Source data has migrated SPV terminology -> UBIDS.
-        # Alias the new canonical identifier column to the legacy key names
+        # Alias the new canonical identifier columns to the legacy key names
         # so existing downstream masking / filtering code keeps working without churn.
-        if "Business ID (UBIDS)" in clean:
-            business_id = clean["Business ID (UBIDS)"]
+        # Recognized canonical columns: "Business ID (UBIDS)" and "Business_ID".
+        business_id = clean.get("Business ID (UBIDS)") or clean.get("Business_ID")
+        if business_id:
             if "SPV_ID" not in clean:
                 clean["SPV_ID"] = business_id
             if "spv_id" not in clean:
