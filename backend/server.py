@@ -357,19 +357,32 @@ async def fetch_access_control() -> list[dict]:
             "assigned_spv_id": (row.get("assigned_business_id") or row.get("assigned_spv_id") or "").strip(),
             "access_type": row.get("access_type", "").strip(),
             "source": row.get("source", "").strip(),
+            # Store the raw sheet value ONLY. No silent default. Final operator_id
+            # is resolved via operator_layer.resolve_operator_id with strict
+            # precedence (env override > sheet column > deny).
+            "operator_id": (row.get("operator_id") or row.get("Operator_ID") or "").strip(),
         })
     return users
 
 
 def resolve_user_access(users: list[dict], email: str) -> Optional[dict]:
     """
-    Look up a user by email in the access-control list.
-    Returns the user record if found and Active, else None.
+    Look up a user by email in the access-control list, extended with a
+    bootstrap fallback for operator admins not yet in the Licensed Users sheet.
+    Returns the user record if found, else None.
+    Licensed Users sheet membership implies UBUYBOX_CORE tenancy (explicitly
+    assigned in fetch_access_control). Bootstrap users carry their own
+    operator_id from OPERATOR_BOOTSTRAP_USERS env.
     """
-    email_lower = email.strip().lower()
+    email_lower = (email or "").strip().lower()
     for user in users:
         if user["email"] == email_lower:
             return user
+    # Operator bootstrap: users defined in OPERATOR_BOOTSTRAP_USERS but absent from the sheet
+    from operator_layer import bootstrap_user_for as _bootstrap
+    seed = _bootstrap(email_lower)
+    if seed:
+        return seed
     return None
 
 
@@ -403,8 +416,21 @@ async def fetch_sheet_tab(sheet_name: str) -> list[dict]:
     return rows
 
 
-def filter_by_spv(rows: list[dict], spv_id: str) -> list[dict]:
-    """Filter rows to those matching the given business identifier (internally named SPV_ID)."""
+def filter_by_spv(rows: list[dict], spv_id: str, user_operator_id: Optional[str] = None) -> list[dict]:
+    """Filter rows to those matching the given business identifier (internally named SPV_ID).
+
+    Operator-tenancy semantics (fail-closed):
+        * user_operator_id is None  -> legacy call site; operator filter NOT applied
+          (non-critical endpoints that have not been wired yet continue to work).
+        * user_operator_id == "UBUYBOX_CORE" -> master scope, all rows allowed.
+        * user_operator_id is a non-empty string -> only rows whose operator_id
+          matches are allowed.
+        * user_operator_id is "" (blank/invalid) -> DENY. Returns []. No silent
+          fallback to master scope.
+    """
+    if user_operator_id is not None:
+        from operator_layer import filter_by_operator as _op_filter
+        rows = _op_filter(rows, user_operator_id)
     return [r for r in rows if r.get("SPV_ID", "").strip() == spv_id]
 
 
@@ -1189,34 +1215,64 @@ async def get_dashboard():
 # ============= USER-SCOPED ENDPOINTS (Bolt auth context) =============
 
 async def _resolve_and_validate(email: str) -> dict:
-    """Common auth resolution. Returns user dict or raises HTTPException."""
+    """Common auth resolution. Returns user dict or raises HTTPException.
+
+    Operator context resolution uses strict precedence:
+        OPERATOR_EMAIL_MAP override  >  sheet column  >  DENY.
+    Admin identity (and every user's operator_id) must be expressed via one of
+    those two sources — no silent defaulting to UBUYBOX_CORE.
+    """
     if not email or not email.strip():
         raise HTTPException(status_code=400, detail={"error": "bad_request", "message": "Email parameter is required"})
-    
-    # Admin bypass — admin may not be in Licensed Users sheet
-    if email.strip().lower() == ADMIN_EMAIL:
+
+    from operator_layer import resolve_operator_id as _resolve_op
+
+    email_lc = email.strip().lower()
+
+    # Admin bypass (for sheet membership only — NOT for operator scope).
+    # Admin's operator_id still comes from OPERATOR_EMAIL_MAP.
+    if email_lc == ADMIN_EMAIL:
         users = await fetch_access_control()
         user = resolve_user_access(users, email)
-        if user:
-            return user
-        # Admin not in sheet — return synthetic admin record
-        return {
-            "license_id": "ADMIN",
-            "email": ADMIN_EMAIL,
-            "owner_name": "Admin",
-            "license_level": "LEVEL_3",
-            "status": "Active",
-            "assigned_spv_id": "SPV_011",
-            "access_type": "Admin",
-            "source": "System",
-        }
-    
+        if not user:
+            user = {
+                "license_id": "ADMIN",
+                "email": ADMIN_EMAIL,
+                "owner_name": "Admin",
+                "license_level": "LEVEL_3",
+                "status": "Active",
+                "assigned_spv_id": "SPV_011",
+                "access_type": "Admin",
+                "source": "System",
+                "operator_id": "",
+            }
+        user["operator_id"] = _resolve_op(user)
+        return user
+
     users = await fetch_access_control()
     user = resolve_user_access(users, email)
     if not user:
         raise HTTPException(status_code=404, detail={"error": "user_not_found", "message": f"No licensed user found for email: {email}"})
-    if user["status"] != "Active":
+    if (user.get("status") or "").lower() not in ("active", ""):
         raise HTTPException(status_code=403, detail={"error": "user_inactive", "message": f"User account is not active (status: {user['status']})"})
+    user["operator_id"] = _resolve_op(user)
+    return user
+
+
+def _require_operator_context(user: dict) -> str:
+    """Return the user's operator_id, or raise 403 if missing/invalid.
+    Fail-closed — no partial data, no silent master-scope fallback."""
+    from operator_layer import is_valid_operator
+    op = (user.get("operator_id") or "").strip()
+    if not op or not is_valid_operator(op):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "operator_context_missing",
+                "message": "No valid operator context resolved for this user. Access denied.",
+            },
+        )
+    return op
     if not user["assigned_spv_id"]:
         raise HTTPException(status_code=403, detail={"error": "no_spv_assigned", "message": "No SPV assigned to this user"})
     return user
@@ -1235,6 +1291,7 @@ async def resolve_user_endpoint(email: str):
         "assignedSpvId": user["assigned_spv_id"],
         "accessType": user["access_type"],
         "status": user["status"],
+        "operatorId": _require_operator_context(user),
         "caps": caps,
     }
 
@@ -1247,6 +1304,7 @@ async def get_user_dashboard(email: str):
     level = user["license_level"]
     user_level_num = LEVEL_HIERARCHY.get(level, 1)
     email_lower = user["email"]
+    user_operator_id = _require_operator_context(user)
 
     # Fetch tabs
     main_maps_all = await fetch_sheet_tab(SHEET_MAIN_MAPS)
@@ -1257,6 +1315,19 @@ async def get_user_dashboard(email: str):
     validation_all = await fetch_sheet_tab(SHEET_VALIDATION)
     orders_all = await fetch_sheet_tab(SHEET_ORDERS)
     opp_release_all = await fetch_sheet_tab(SHEET_OPP_RELEASE)
+
+    # --- Operator tenancy filter: apply BEFORE any SPV / level logic so that
+    # restricted operators (EVENT_HABITAT etc) only ever see rows tagged with
+    # their operator_id. UBUYBOX_CORE users are unaffected (no-op).
+    from operator_layer import filter_by_operator as _op_filter
+    main_maps_all   = _op_filter(main_maps_all,   user_operator_id)
+    spv_reg_all     = _op_filter(spv_reg_all,     user_operator_id)
+    cap_stack_all   = _op_filter(cap_stack_all,   user_operator_id)
+    waterfall_all   = _op_filter(waterfall_all,   user_operator_id)
+    deal_sum_all    = _op_filter(deal_sum_all,    user_operator_id)
+    validation_all  = _op_filter(validation_all,  user_operator_id)
+    orders_all      = _op_filter(orders_all,      user_operator_id)
+    opp_release_all = _op_filter(opp_release_all, user_operator_id)
 
     # --- Additive repair: rescue Active Opportunities when the Release Control
     # sheet has been overwritten with a Main-Maps-Offers-style schema (no
@@ -1444,6 +1515,7 @@ async def get_user_dashboard(email: str):
             "licenseLevel": level,
             "assignedSpvId": spv_id,
             "licenseId": user["license_id"],
+            "operatorId": user_operator_id,
         },
         "personalContext": {
             "stats": {
@@ -1599,7 +1671,7 @@ async def get_user_deals(email: str):
         deals = supabase_rows or []
         return {"deals": deals, "count": len(deals), "spvId": spv_id, "source": "supabase"}
 
-    main_maps_raw = filter_by_spv(await fetch_sheet_tab(SHEET_MAIN_MAPS), spv_id)
+    main_maps_raw = filter_by_spv(await fetch_sheet_tab(SHEET_MAIN_MAPS), spv_id, _require_operator_context(user))
     if level == "LEVEL_3":
         return {"deals": [mask_main_maps_l3(r) for r in main_maps_raw], "count": len(main_maps_raw), "spvId": spv_id, "source": "sheet"}
     elif level == "LEVEL_2":
@@ -1624,7 +1696,7 @@ async def get_user_spvs(email: str):
         masked = supabase_rows or []
         return {"spvs": masked, "count": len(masked), "source": "supabase"}
 
-    spv_reg_raw = filter_by_spv(await fetch_sheet_tab(SHEET_SPV_REGISTRY), spv_id)
+    spv_reg_raw = filter_by_spv(await fetch_sheet_tab(SHEET_SPV_REGISTRY), spv_id, _require_operator_context(user))
     if level in ("LEVEL_2", "LEVEL_3"):
         masked = [mask_spv_registry_l2(r) for r in spv_reg_raw]
     else:
@@ -1756,8 +1828,12 @@ async def get_deal_summary(email: str):
 
     # Fallback: Google Sheets + Python masking.
     rows = await fetch_sheet_tab(SHEET_DEAL_SUMMARY)
+    user_op = _require_operator_context(user)
     if not is_admin:
-        rows = filter_by_spv(rows, spv_id)
+        rows = filter_by_spv(rows, spv_id, user_op)
+    else:
+        from operator_layer import filter_by_operator as _op_filter
+        rows = _op_filter(rows, user_op)
 
     result = []
     for r in rows:
@@ -1801,8 +1877,12 @@ async def get_tranche_breakdown(email: str):
         return {"tranches": result, "count": len(result), "spvId": spv_id, "source": "supabase"}
 
     rows = await fetch_sheet_tab(SHEET_TRANCHE)
+    user_op = _require_operator_context(user)
     if not is_admin:
-        rows = filter_by_spv(rows, spv_id)
+        rows = filter_by_spv(rows, spv_id, user_op)
+    else:
+        from operator_layer import filter_by_operator as _op_filter
+        rows = _op_filter(rows, user_op)
 
     result = []
     for r in rows:
@@ -1909,13 +1989,14 @@ async def get_waterfall_view(email: str, businessId: Optional[str] = None):
         )
 
     # --- Fetch both sheets defensively ---
+    user_op = _require_operator_context(user)
     try:
-        waterfall_rows = filter_by_spv(await fetch_sheet_tab(SHEET_WATERFALL), business_id)
+        waterfall_rows = filter_by_spv(await fetch_sheet_tab(SHEET_WATERFALL), business_id, user_op)
     except Exception as e:
         logger.warning(f"Waterfall Engine fetch failed: {type(e).__name__}")
         waterfall_rows = []
     try:
-        tranche_rows = filter_by_spv(await fetch_sheet_tab(SHEET_TRANCHE), business_id)
+        tranche_rows = filter_by_spv(await fetch_sheet_tab(SHEET_TRANCHE), business_id, user_op)
     except Exception as e:
         logger.warning(f"Tranche Breakdown fetch failed: {type(e).__name__}")
         tranche_rows = []
