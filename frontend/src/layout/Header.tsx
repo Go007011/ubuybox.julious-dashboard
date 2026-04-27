@@ -5,6 +5,7 @@ const pageTitles: Record<string, string> = {
   '/intake': 'Opportunity Intake',
   '/capital': 'Capital Stack',
   '/spv': 'Business Registry',
+  '/event-habitat-dashboard': 'Event Habitat Dashboard',
   '/waterfalls': 'Waterfalls',
   '/holdco': 'HoldCo Summary',
   '/documents': 'Documents',

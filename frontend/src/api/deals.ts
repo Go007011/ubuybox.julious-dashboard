@@ -56,6 +56,9 @@ export interface UserInfo {
   licenseLevel: string;
   assignedSpvId: string;
   licenseId?: string;
+  operatorId?: string;
+  status?: string;
+  accessType?: string;
 }
 
 export interface CapsInfo {
@@ -178,6 +181,10 @@ export async function resolveUser(): Promise<UserInfo | null> {
     ownerName: data.ownerName,
     licenseLevel: data.licenseLevel,
     assignedSpvId: data.assignedSpvId,
+    licenseId: data.licenseId,
+    operatorId: data.operatorId,
+    status: data.status,
+    accessType: data.accessType,
   };
 }
 
